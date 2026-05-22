@@ -1,244 +1,337 @@
 
 <style>
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: var(--font-sans); font-size: 14px; color: var(--color-text-primary); }
-  .root { padding: 1rem 0; display: flex; flex-direction: column; gap: 12px; }
-  .card { background: var(--color-background-primary); border: 0.5px solid var(--color-border-tertiary); border-radius: var(--border-radius-lg); padding: 1rem 1.25rem; }
-  .card-label { font-size: 12px; color: var(--color-text-secondary); margin-bottom: 8px; text-transform: lowercase; letter-spacing: 0.02em; }
-  .controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-  .badge { font-size: 11px; padding: 2px 8px; border-radius: 99px; font-weight: 500; }
-  .badge-idle { background: var(--color-background-secondary); color: var(--color-text-secondary); border: 0.5px solid var(--color-border-tertiary); }
-  .badge-listening { background: #EAF3DE; color: #3B6D11; border: 0.5px solid #97C459; }
-  .badge-error { background: #FCEBEB; color: #A32D2D; border: 0.5px solid #F09595; }
-  .mono { font-family: var(--font-mono); font-size: 12px; }
-  .event-stream { max-height: 200px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; }
-  .event-row { display: grid; grid-template-columns: 80px 90px 1fr; gap: 8px; align-items: baseline; padding: 3px 0; border-bottom: 0.5px solid var(--color-border-tertiary); }
-  .event-row:last-child { border-bottom: none; }
-  .ev-time { color: var(--color-text-secondary); font-family: var(--font-mono); font-size: 11px; }
-  .ev-type { font-size: 11px; font-weight: 500; padding: 1px 6px; border-radius: 4px; text-align: center; }
-  .ev-interim { background: #FAEEDA; color: #854F0B; }
-  .ev-final { background: #E1F5EE; color: #0F6E56; }
-  .ev-error { background: #FCEBEB; color: #A32D2D; }
-  .ev-text { color: var(--color-text-primary); font-size: 13px; }
-  .word-table { width: 100%; border-collapse: collapse; font-size: 12px; }
-  .word-table th { text-align: left; color: var(--color-text-secondary); font-weight: 500; padding: 4px 6px 6px; border-bottom: 0.5px solid var(--color-border-tertiary); }
-  .word-table td { padding: 3px 6px; border-bottom: 0.5px solid var(--color-border-tertiary); font-family: var(--font-mono); }
-  .word-table tr:last-child td { border-bottom: none; }
-  .word-table tr:nth-child(even) td { background: var(--color-background-secondary); }
-  .word-highlight { color: var(--color-text-info); }
-  .empty-state { color: var(--color-text-tertiary); font-size: 13px; text-align: center; padding: 1rem; }
-  .raw-json { background: var(--color-background-secondary); border-radius: var(--border-radius-md); padding: 10px; font-family: var(--font-mono); font-size: 11px; color: var(--color-text-secondary); max-height: 140px; overflow-y: auto; white-space: pre-wrap; word-break: break-all; }
-  .stat-row { display: flex; gap: 8px; flex-wrap: wrap; }
-  .stat { background: var(--color-background-secondary); border-radius: var(--border-radius-md); padding: 8px 12px; flex: 1; min-width: 80px; }
-  .stat-val { font-size: 20px; font-weight: 500; }
-  .stat-lbl { font-size: 11px; color: var(--color-text-secondary); margin-top: 2px; }
-  .col-offset { color: #185FA5; }
-  .col-est { color: #3B6D11; }
-  .col-conf { color: #854F0B; }
-  input[type=range] { width: 100px; }
-  .slider-row { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--color-text-secondary); }
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:var(--font-sans);font-size:14px;color:var(--color-text-primary);}
+.root{padding:1rem 0;display:flex;flex-direction:column;gap:12px;}
+.card{background:var(--color-background-primary);border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-lg);padding:1rem 1.25rem;}
+.lbl{font-size:12px;color:var(--color-text-secondary);margin-bottom:8px;}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;}
+.badge{font-size:11px;padding:2px 8px;border-radius:99px;font-weight:500;}
+.badge-idle{background:var(--color-background-secondary);color:var(--color-text-secondary);border:0.5px solid var(--color-border-tertiary);}
+.badge-rec{background:#FCEBEB;color:#A32D2D;border:0.5px solid #F09595;}
+.badge-ready{background:#EAF3DE;color:#3B6D11;border:0.5px solid #97C459;}
+canvas#waveform{width:100%;height:60px;display:block;border-radius:var(--border-radius-md);background:var(--color-background-secondary);}
+canvas#waveform-static{width:100%;height:60px;display:block;border-radius:var(--border-radius-md);background:var(--color-background-secondary);}
+.playback-wrap{position:relative;width:100%;height:60px;}
+.playhead{position:absolute;top:0;bottom:0;width:1.5px;background:#E24B4A;pointer-events:none;left:0;}
+.word-flow{display:flex;flex-wrap:wrap;gap:6px;min-height:48px;align-items:center;padding:4px 0;}
+.word-chip{font-size:15px;padding:3px 8px;border-radius:var(--border-radius-md);background:var(--color-background-secondary);color:var(--color-text-secondary);border:0.5px solid var(--color-border-tertiary);transition:background 0.1s,color 0.1s,border-color 0.1s;}
+.word-chip.active{background:#E6F1FB;color:#0C447C;border-color:#85B7EB;font-weight:500;}
+.word-chip.past{background:var(--color-background-secondary);color:var(--color-text-primary);border-color:var(--color-border-tertiary);}
+.mono{font-family:var(--font-mono);font-size:11px;}
+.stat-row{display:flex;gap:8px;flex-wrap:wrap;}
+.stat{background:var(--color-background-secondary);border-radius:var(--border-radius-md);padding:8px 12px;flex:1;min-width:70px;}
+.stat-val{font-size:20px;font-weight:500;}
+.stat-lbl{font-size:11px;color:var(--color-text-secondary);margin-top:2px;}
+.timeline-wrap{position:relative;overflow:hidden;}
+.tick-row{display:flex;position:relative;height:16px;}
 </style>
 
 <div class="root">
-  <h2 class="sr-only">Web Speech API timestamp explorer — live word-level timing debugger</h2>
+<h2 class="sr-only">Speech recorder with audio playback and animated word timestamp alignment</h2>
 
-  <div class="card">
-    <div class="controls">
-      <button id="btn-start" onclick="startListening()"><i class="ti ti-microphone" aria-hidden="true"></i> start</button>
-      <button id="btn-stop" onclick="stopListening()" disabled><i class="ti ti-player-stop" aria-hidden="true"></i> stop</button>
-      <button onclick="clearAll()" style="color: var(--color-text-secondary)"><i class="ti ti-trash" aria-hidden="true"></i> clear</button>
-      <span class="badge badge-idle" id="status-badge">idle</span>
-      <div style="flex:1"></div>
-      <div class="slider-row">
-        <label for="ms-per-word">ms/word:</label>
-        <input type="range" id="ms-per-word" min="80" max="400" step="10" value="150" oninput="updateMsPerWord(this.value)">
-        <span id="ms-per-word-val" class="mono">150</span>
-      </div>
-    </div>
-  </div>
-
-  <div class="stat-row">
-    <div class="stat"><div class="stat-val" id="stat-chunks">0</div><div class="stat-lbl">chunks received</div></div>
-    <div class="stat"><div class="stat-val" id="stat-words">0</div><div class="stat-lbl">words logged</div></div>
-    <div class="stat"><div class="stat-val" id="stat-interim">0</div><div class="stat-lbl">interim events</div></div>
-    <div class="stat"><div class="stat-val" id="stat-lag">—</div><div class="stat-lbl">avg chunk lag ms</div></div>
-  </div>
-
-  <div class="card">
-    <div class="card-label">raw recognition events</div>
-    <div class="event-stream" id="event-stream">
-      <div class="empty-state">events will appear here when you start speaking</div>
-    </div>
-  </div>
-
-  <div class="card">
-    <div class="card-label">last raw result object (JSON)</div>
-    <div class="raw-json" id="raw-json">—</div>
-  </div>
-
-  <div class="card">
-    <div class="card-label">word timestamp log</div>
-    <div id="word-table-wrap">
-      <div class="empty-state">final words with estimated timestamps will appear here</div>
-    </div>
+<div class="card">
+  <div class="row">
+    <button id="btn-rec" onclick="startRec()"><i class="ti ti-microphone" aria-hidden="true"></i> record</button>
+    <button id="btn-stop" onclick="stopRec()" disabled><i class="ti ti-player-stop" aria-hidden="true"></i> stop</button>
+    <button id="btn-play" onclick="playback()" disabled><i class="ti ti-player-play" aria-hidden="true"></i> play</button>
+    <button id="btn-pause" onclick="pausePlayback()" disabled><i class="ti ti-player-pause" aria-hidden="true"></i> pause</button>
+    <button onclick="resetAll()" style="color:var(--color-text-secondary)"><i class="ti ti-trash" aria-hidden="true"></i> reset</button>
+    <span class="badge badge-idle" id="status">idle</span>
+    <div style="flex:1"></div>
+    <span class="mono" id="clock" style="color:var(--color-text-secondary)">0.0s</span>
   </div>
 </div>
 
+<div class="stat-row">
+  <div class="stat"><div class="stat-val" id="s-dur">—</div><div class="stat-lbl">duration (s)</div></div>
+  <div class="stat"><div class="stat-val" id="s-words">0</div><div class="stat-lbl">words</div></div>
+  <div class="stat"><div class="stat-val" id="s-chunks">0</div><div class="stat-lbl">chunks</div></div>
+  <div class="stat"><div class="stat-val" id="s-mpw" style="font-size:14px">150ms</div><div class="stat-lbl">ms/word est.</div></div>
+</div>
+
+<div class="card">
+  <div class="lbl">live waveform / playback timeline</div>
+  <div class="timeline-wrap">
+    <div class="playback-wrap">
+      <canvas id="waveform-static"></canvas>
+      <div class="playhead" id="playhead"></div>
+    </div>
+    <div class="tick-row" id="tick-row"></div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="lbl">word playback — highlighted as audio plays</div>
+  <div class="word-flow" id="word-flow"><span style="color:var(--color-text-tertiary);font-size:13px;">words appear here after recording</span></div>
+</div>
+
+<div class="card">
+  <div class="lbl">word timestamp log <span style="font-size:11px;color:var(--color-text-tertiary);margin-left:8px;">arrival = when chunk fired &nbsp;|&nbsp; est = backdated per word</span></div>
+  <div style="overflow-x:auto;">
+    <table id="word-table" style="width:100%;border-collapse:collapse;font-size:12px;">
+      <thead><tr style="border-bottom:0.5px solid var(--color-border-tertiary);">
+        <th style="text-align:left;padding:4px 6px;color:var(--color-text-secondary);font-weight:500;">word</th>
+        <th style="text-align:left;padding:4px 6px;color:var(--color-text-secondary);font-weight:500;">chunk</th>
+        <th style="text-align:left;padding:4px 6px;color:var(--color-text-secondary);font-weight:500;">arrival UTC</th>
+        <th style="text-align:left;padding:4px 6px;color:#185FA5;font-weight:500;">est UTC</th>
+        <th style="text-align:left;padding:4px 6px;color:#185FA5;font-weight:500;">est offset (s)</th>
+        <th style="text-align:left;padding:4px 6px;color:var(--color-text-secondary);font-weight:500;">conf</th>
+      </tr></thead>
+      <tbody id="word-tbody"></tbody>
+    </table>
+  </div>
+</div>
+</div>
+
 <script>
-let recognition = null;
+let mediaRec = null, audioChunks = [], audioBlob = null, audioUrl = null, audioEl = null;
+let recognition = null, recStartMs = null, recStopMs = null;
+let wordLog = [], chunkCount = 0;
 let msPerWord = 150;
-let wordLog = [];
-let chunkCount = 0;
-let interimCount = 0;
-let lagSamples = [];
-let startMs = null;
-let firstEventCleared = false;
+let animRaf = null, playRaf = null;
+let analyser = null, animCtx = null, staticCtx = null;
+let waveformData = null;
+let recStream = null;
 
-function updateMsPerWord(v) {
-  msPerWord = parseInt(v);
-  document.getElementById('ms-per-word-val').textContent = v;
-}
+const $ = id => document.getElementById(id);
+function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 
-function setStatus(state, text) {
-  const badge = document.getElementById('status-badge');
-  badge.textContent = text;
-  badge.className = 'badge badge-' + state;
-}
+function setStatus(cls, txt){ const b=$('status'); b.className='badge badge-'+cls; b.textContent=txt; }
 
-function startListening() {
-  const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SpeechRec) {
-    setStatus('error', 'unsupported');
-    addEvent('error', 'SpeechRecognition not supported in this browser');
-    return;
+async function startRec(){
+  try {
+    recStream = await navigator.mediaDevices.getUserMedia({audio:true});
+  } catch(e){ setStatus('rec','mic denied'); return; }
+
+  audioChunks=[]; wordLog=[]; chunkCount=0; audioBlob=null;
+  $('word-flow').innerHTML='<span style="color:var(--color-text-tertiary);font-size:13px;">listening...</span>';
+  $('word-tbody').innerHTML='';
+  $('s-words').textContent=0; $('s-chunks').textContent=0; $('s-dur').textContent='—';
+
+  const AudioCtx = window.AudioContext||window.webkitAudioContext;
+  const actx = new AudioCtx();
+  const src = actx.createMediaStreamSource(recStream);
+  analyser = actx.createAnalyser();
+  analyser.fftSize=512;
+  src.connect(analyser);
+
+  mediaRec = new MediaRecorder(recStream);
+  mediaRec.ondataavailable = e => { if(e.data.size>0) audioChunks.push(e.data); };
+  mediaRec.onstop = () => { finishRec(actx); };
+  mediaRec.start(100);
+
+  recStartMs = Date.now();
+
+  const SpeechRec = window.SpeechRecognition||window.webkitSpeechRecognition;
+  if(SpeechRec){
+    recognition = new SpeechRec();
+    recognition.continuous=true; recognition.interimResults=true; recognition.lang='en-US';
+    recognition.onresult = handleResult;
+    recognition.onerror = e => setStatus('rec','rec+err:'+e.error);
+    recognition.start();
+  } else {
+    setStatus('rec','recording (no speech API)');
   }
-  recognition = new SpeechRec();
-  recognition.continuous = true;
-  recognition.interimResults = true;
-  recognition.lang = 'en-US';
 
-  recognition.onstart = () => {
-    startMs = Date.now();
-    setStatus('listening', 'listening');
-    document.getElementById('btn-start').disabled = true;
-    document.getElementById('btn-stop').disabled = false;
-  };
+  setStatus('rec','recording');
+  $('btn-rec').disabled=true; $('btn-stop').disabled=false;
+  $('btn-play').disabled=true; $('btn-pause').disabled=true;
+  drawLive();
+}
 
-  recognition.onresult = (event) => {
-    const arrivalMs = Date.now();
-    const result = event.results[event.resultIndex];
-    const isFinal = result.isFinal;
-    const transcript = result[0].transcript.trim();
-    const conf = result[0].confidence;
+function handleResult(event){
+  const arrivalMs = Date.now();
+  const result = event.results[event.resultIndex];
+  if(!result.isFinal) return;
+  chunkCount++;
+  $('s-chunks').textContent=chunkCount;
+  const transcript = result[0].transcript.trim();
+  const conf = result[0].confidence;
+  const words = transcript.split(/\s+/).filter(Boolean);
+  const chunkStartMs = arrivalMs - words.length * msPerWord;
+  words.forEach((word,idx)=>{
+    const estMs = chunkStartMs + idx*msPerWord;
+    const estOffset = (estMs - recStartMs)/1000;
+    wordLog.push({word, chunk:chunkCount, arrivalMs, estMs, estOffset:Math.max(0,estOffset), conf: conf?parseFloat(conf.toFixed(2)):null});
+  });
+  $('s-words').textContent=wordLog.length;
+  renderChips();
+  renderTable();
+}
 
-    if (!firstEventCleared) {
-      document.getElementById('event-stream').innerHTML = '';
-      firstEventCleared = true;
+function renderChips(){
+  if(!wordLog.length){$('word-flow').innerHTML='';return;}
+  $('word-flow').innerHTML = wordLog.map((w,i)=>
+    `<span class="word-chip" data-idx="${i}">${esc(w.word)}</span>`
+  ).join('');
+}
+
+function renderTable(){
+  $('word-tbody').innerHTML = wordLog.slice().reverse().map(w=>`<tr style="border-bottom:0.5px solid var(--color-border-tertiary);">
+    <td style="padding:3px 6px;font-weight:500;">${esc(w.word)}</td>
+    <td style="padding:3px 6px;font-family:var(--font-mono);">${w.chunk}</td>
+    <td style="padding:3px 6px;font-family:var(--font-mono);color:var(--color-text-secondary);">${new Date(w.arrivalMs).toISOString().slice(11,23)}</td>
+    <td style="padding:3px 6px;font-family:var(--font-mono);color:#185FA5;">${new Date(w.estMs).toISOString().slice(11,23)}</td>
+    <td style="padding:3px 6px;font-family:var(--font-mono);color:#185FA5;">${w.estOffset.toFixed(2)}s</td>
+    <td style="padding:3px 6px;font-family:var(--font-mono);color:var(--color-text-secondary);">${w.conf!==null?w.conf:'—'}</td>
+  </tr>`).join('');
+}
+
+function drawLive(){
+  const canvas = $('waveform-static');
+  const ctx = canvas.getContext('2d');
+  canvas.width = canvas.offsetWidth*2; canvas.height=120;
+  function frame(){
+    if(!analyser){return;}
+    animRaf=requestAnimationFrame(frame);
+    const buf=new Uint8Array(analyser.frequencyBinCount);
+    analyser.getByteTimeDomainData(buf);
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    ctx.beginPath();
+    ctx.strokeStyle='#378ADD';
+    ctx.lineWidth=1.5;
+    const sliceW=canvas.width/buf.length;
+    let x=0;
+    for(let i=0;i<buf.length;i++){
+      const v=buf[i]/128;
+      const y=v*canvas.height/2;
+      if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+      x+=sliceW;
     }
+    ctx.stroke();
+    const elapsed=((Date.now()-recStartMs)/1000).toFixed(1);
+    $('clock').textContent=elapsed+'s';
+  }
+  frame();
+}
 
-    const relativeMs = startMs ? arrivalMs - startMs : 0;
+function stopRec(){
+  if(recognition){try{recognition.stop();}catch(e){}}
+  if(mediaRec&&mediaRec.state!=='inactive') mediaRec.stop();
+  recStopMs=Date.now();
+  if(recStream) recStream.getTracks().forEach(t=>t.stop());
+  if(animRaf){cancelAnimationFrame(animRaf);animRaf=null;}
+  analyser=null;
+  setStatus('ready','stopped');
+  $('btn-stop').disabled=true; $('btn-rec').disabled=false;
+}
 
-    if (isFinal) {
-      chunkCount++;
-      document.getElementById('stat-chunks').textContent = chunkCount;
+function finishRec(actx){
+  audioBlob=new Blob(audioChunks,{type:'audio/webm'});
+  audioUrl=URL.createObjectURL(audioBlob);
+  audioEl=new Audio(audioUrl);
+  const dur=((recStopMs-recStartMs)/1000).toFixed(1);
+  $('s-dur').textContent=dur;
+  $('btn-play').disabled=false;
+  drawStaticWaveform(actx);
+  buildTicks(parseFloat(dur));
+  renderChips();
+  renderTable();
+}
 
-      const words = transcript.split(/\s+/).filter(Boolean);
-      const chunkStartMs = arrivalMs - words.length * msPerWord;
-      const lag = words.length * msPerWord;
-      lagSamples.push(lag);
-      const avgLag = Math.round(lagSamples.reduce((a,b)=>a+b,0)/lagSamples.length);
-      document.getElementById('stat-lag').textContent = avgLag;
+function drawStaticWaveform(actx){
+  const canvas=$('waveform-static');
+  canvas.width=canvas.offsetWidth*2; canvas.height=120;
+  const ctx=canvas.getContext('2d');
+  const reader=new FileReader();
+  reader.onload=e=>{
+    actx.decodeAudioData(e.target.result, buf=>{
+      waveformData=buf;
+      const data=buf.getChannelData(0);
+      const W=canvas.width, H=canvas.height;
+      ctx.clearRect(0,0,W,H);
+      const step=Math.ceil(data.length/W);
+      ctx.beginPath();
+      ctx.strokeStyle='#378ADD';
+      ctx.lineWidth=1;
+      for(let i=0;i<W;i++){
+        let max=0;
+        for(let j=0;j<step;j++){const v=Math.abs(data[i*step+j]||0);if(v>max)max=v;}
+        const h=max*(H*0.85);
+        const y=(H-h)/2;
+        ctx.moveTo(i,y); ctx.lineTo(i,y+h);
+      }
+      ctx.stroke();
+    });
+  };
+  reader.readAsArrayBuffer(audioBlob);
+}
 
-      words.forEach((word, idx) => {
-        const estMs = chunkStartMs + idx * msPerWord;
-        wordLog.push({ word, chunkIdx: chunkCount, wordIdx: idx, arrivalUtcMs: arrivalMs, estUtcMs: estMs, offsetMs: idx * msPerWord, conf: conf ? conf.toFixed(2) : '—' });
-      });
-      document.getElementById('stat-words').textContent = wordLog.length;
-      renderWordTable();
-    } else {
-      interimCount++;
-      document.getElementById('stat-interim').textContent = interimCount;
+function buildTicks(dur){
+  const row=$('tick-row');
+  row.innerHTML='';
+  const step=dur>30?10:dur>10?5:1;
+  const W=row.offsetWidth||640;
+  for(let t=0;t<=dur;t+=step){
+    const span=document.createElement('span');
+    span.className='mono';
+    span.style.cssText=`position:absolute;left:${(t/dur)*100}%;font-size:10px;color:var(--color-text-tertiary);transform:translateX(-50%);`;
+    span.textContent=t+'s';
+    row.appendChild(span);
+  }
+}
+
+function playback(){
+  if(!audioEl) return;
+  audioEl.currentTime=0;
+  audioEl.play();
+  $('btn-play').disabled=true; $('btn-pause').disabled=false;
+  setStatus('ready','playing');
+  const dur=parseFloat($('s-dur').textContent)||1;
+  const canvas=$('waveform-static');
+  const ph=$('playhead');
+  const chips=[...$('word-flow').querySelectorAll('.word-chip')];
+
+  function advance(){
+    const t=audioEl.currentTime;
+    const pct=(t/dur)*100;
+    ph.style.left=pct+'%';
+    $('clock').textContent=t.toFixed(1)+'s';
+    chips.forEach((chip,i)=>{
+      const w=wordLog[i];
+      if(!w) return;
+      if(t>=w.estOffset && t<w.estOffset+msPerWord/1000+0.1){
+        chip.className='word-chip active';
+      } else if(t>=w.estOffset){
+        chip.className='word-chip past';
+      } else {
+        chip.className='word-chip';
+      }
+    });
+    if(!audioEl.paused && !audioEl.ended){ playRaf=requestAnimationFrame(advance); }
+    else if(audioEl.ended){
+      $('btn-play').disabled=false; $('btn-pause').disabled=true;
+      setStatus('ready','done');
+      chips.forEach(c=>c.className='word-chip past');
+      ph.style.left='100%';
     }
-
-    addEvent(isFinal ? 'final' : 'interim', transcript, conf, relativeMs);
-
-    const rawObj = {
-      resultIndex: event.resultIndex,
-      isFinal,
-      transcript,
-      confidence: conf ? parseFloat(conf.toFixed(3)) : null,
-      arrivalUtcMs: arrivalMs,
-      arrivalIso: new Date(arrivalMs).toISOString(),
-      wordCount: transcript.split(/\s+/).filter(Boolean).length
-    };
-    document.getElementById('raw-json').textContent = JSON.stringify(rawObj, null, 2);
-  };
-
-  recognition.onerror = (e) => {
-    setStatus('error', 'error: ' + e.error);
-    addEvent('error', e.error);
-  };
-
-  recognition.onend = () => {
-    setStatus('idle', 'stopped');
-    document.getElementById('btn-start').disabled = false;
-    document.getElementById('btn-stop').disabled = true;
-  };
-
-  recognition.start();
+  }
+  playRaf=requestAnimationFrame(advance);
 }
 
-function stopListening() {
-  if (recognition) recognition.stop();
+function pausePlayback(){
+  if(!audioEl) return;
+  if(audioEl.paused){ audioEl.play(); $('btn-pause').textContent=''; $('btn-pause').innerHTML='<i class="ti ti-player-pause" aria-hidden="true"></i> pause'; setStatus('ready','playing'); requestAnimationFrame(function adv(){const t=audioEl.currentTime;const dur=parseFloat($('s-dur').textContent)||1;$('playhead').style.left=(t/dur*100)+'%';$('clock').textContent=t.toFixed(1)+'s';const chips=[...$('word-flow').querySelectorAll('.word-chip')];chips.forEach((c,i)=>{const w=wordLog[i];if(!w)return;if(t>=w.estOffset&&t<w.estOffset+msPerWord/1000+0.1){c.className='word-chip active';}else if(t>=w.estOffset){c.className='word-chip past';}else{c.className='word-chip';}});if(!audioEl.paused&&!audioEl.ended)requestAnimationFrame(adv);}); }
+  else { audioEl.pause(); setStatus('ready','paused'); }
 }
 
-function addEvent(type, text, conf, relMs) {
-  const stream = document.getElementById('event-stream');
-  const now = new Date();
-  const timeStr = now.toISOString().slice(11, 23);
-  const row = document.createElement('div');
-  row.className = 'event-row';
-  const confStr = (conf !== undefined && conf !== null && conf !== '') ? ` (${parseFloat(conf).toFixed(2)})` : '';
-  row.innerHTML = `<span class="ev-time">${timeStr}</span><span class="ev-type ev-${type === 'error' ? 'error' : type}">${type}${confStr}</span><span class="ev-text">${escHtml(text)}</span>`;
-  stream.appendChild(row);
-  stream.scrollTop = stream.scrollHeight;
-}
-
-function renderWordTable() {
-  const wrap = document.getElementById('word-table-wrap');
-  if (!wordLog.length) { wrap.innerHTML = '<div class="empty-state">no words yet</div>'; return; }
-  let rows = wordLog.map(w => `<tr>
-    <td>${escHtml(w.word)}</td>
-    <td>${w.chunkIdx}:${w.wordIdx}</td>
-    <td>${new Date(w.arrivalUtcMs).toISOString().slice(11,23)}</td>
-    <td class="col-offset">+${w.offsetMs}</td>
-    <td class="col-est">${new Date(w.estUtcMs).toISOString().slice(11,23)}</td>
-    <td class="col-conf">${w.conf}</td>
-  </tr>`).reverse().join('');
-  wrap.innerHTML = `<table class="word-table">
-    <thead><tr>
-      <th>word</th><th>chunk:pos</th>
-      <th>chunk arrival (UTC)</th>
-      <th class="col-offset">word offset ms</th>
-      <th class="col-est">estimated word UTC</th>
-      <th class="col-conf">conf</th>
-    </tr></thead>
-    <tbody>${rows}</tbody>
-  </table>`;
-}
-
-function clearAll() {
-  wordLog = []; chunkCount = 0; interimCount = 0; lagSamples = []; firstEventCleared = false;
-  document.getElementById('stat-chunks').textContent = 0;
-  document.getElementById('stat-words').textContent = 0;
-  document.getElementById('stat-interim').textContent = 0;
-  document.getElementById('stat-lag').textContent = '—';
-  document.getElementById('raw-json').textContent = '—';
-  document.getElementById('event-stream').innerHTML = '<div class="empty-state">events will appear here when you start speaking</div>';
-  document.getElementById('word-table-wrap').innerHTML = '<div class="empty-state">final words with estimated timestamps will appear here</div>';
-}
-
-function escHtml(s) {
-  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+function resetAll(){
+  if(recognition){try{recognition.stop();}catch(e){}}
+  if(mediaRec&&mediaRec.state!=='inactive'){try{mediaRec.stop();}catch(e){}}
+  if(recStream) recStream.getTracks().forEach(t=>t.stop());
+  if(audioEl){audioEl.pause();audioEl=null;}
+  if(animRaf){cancelAnimationFrame(animRaf);animRaf=null;}
+  if(playRaf){cancelAnimationFrame(playRaf);playRaf=null;}
+  analyser=null; audioBlob=null; audioUrl=null; audioChunks=[];
+  wordLog=[]; chunkCount=0; recStartMs=null; recStopMs=null;
+  $('btn-rec').disabled=false; $('btn-stop').disabled=true; $('btn-play').disabled=true; $('btn-pause').disabled=true;
+  setStatus('idle','idle'); $('clock').textContent='0.0s';
+  $('s-dur').textContent='—'; $('s-words').textContent=0; $('s-chunks').textContent=0;
+  const canvas=$('waveform-static'); const ctx=canvas.getContext('2d');
+  canvas.width=canvas.offsetWidth*2;canvas.height=120; ctx.clearRect(0,0,canvas.width,canvas.height);
+  $('tick-row').innerHTML=''; $('playhead').style.left='0';
+  $('word-flow').innerHTML='<span style="color:var(--color-text-tertiary);font-size:13px;">words appear here after recording</span>';
+  $('word-tbody').innerHTML='';
 }
 </script>
