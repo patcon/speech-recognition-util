@@ -279,7 +279,14 @@ async function startRec(){
     setStatus('rec','recording');
     addEvent('info','recognition started');
   };
-  recognition.onend=()=>{dbg('SR onend');};
+  recognition.onend=()=>{
+    dbg('SR onend');
+    // Android stops recognition after each phrase despite continuous=true; restart to emulate continuous mode.
+    if(isAndroid&&!$('btn-stop').disabled){
+      dbg('Android: restarting recognition');
+      try{recognition.start();}catch(e){dbg('recognition.start() on restart threw: '+e.message);}
+    }
+  };
   recognition.onaudiostart=()=>{dbg('SR onaudiostart');};
   recognition.onaudioend=()=>{dbg('SR onaudioend');};
   recognition.onspeechstart=()=>{dbg('SR onspeechstart');};
