@@ -179,6 +179,7 @@ let wordLog=[],chunkCount=0,interimCount=0,anchoredCount=0;
 let interimHistory={};
 let analyser=null,audioCtxGlobal=null,liveRaf=null,playRaf=null;
 const isAndroid=/android/i.test(navigator.userAgent);
+let androidCumulativeWords=[];
 let eventsCleared=false;
 let backdateMs=600;
 let staticCanvas=null,staticDur=null;
@@ -255,7 +256,7 @@ async function startRec(){
   if(!SR){setStatus('error','no speech API');return;}
 
   audioChunks=[];wordLog=[];chunkCount=0;interimCount=0;anchoredCount=0;
-  interimHistory={};audioBlob=null;eventsCleared=false;staticCanvas=null;staticDur=null;
+  interimHistory={};audioBlob=null;eventsCleared=false;staticCanvas=null;staticDur=null;androidCumulativeWords=[];
   $('word-flow').innerHTML='<span style="color:var(--color-text-tertiary);font-size:13px;">listening...</span>';
   $('word-tbody').innerHTML='<tr><td colspan="7" class="empty">no words yet</td></tr>';
   $('s-words').textContent=0;$('s-chunks').textContent=0;$('s-interim').textContent=0;$('s-anchored').textContent=0;$('s-dur').textContent='—';
@@ -339,6 +340,21 @@ function handleResult(event){
     if(!interimHistory[ri])interimHistory[ri]=[];
     interimHistory[ri].push({words:[...words],arrivalMs});
     addEvent('interim',transcript,conf);
+  } else if(isAndroid){
+    // Android sends cumulative finals: each transcript contains ALL words spoken so far.
+    // Diff against what we've already logged to extract only new words.
+    const newWords=words.slice(androidCumulativeWords.length);
+    androidCumulativeWords=words;
+    if(newWords.length){
+      chunkCount++;$('s-chunks').textContent=chunkCount;
+      newWords.forEach((word,idx)=>{
+        const rawEstOffset=Math.max(0,(arrivalMs-(recStartMs||arrivalMs))/1000);
+        wordLog.push({word,chunk:chunkCount,pos:idx,arrivalMs,rawEstMs:arrivalMs,rawEstOffset,source:'final',conf:conf!=null?parseFloat(conf.toFixed(2)):null});
+      });
+      $('s-words').textContent=wordLog.length;
+      renderChips();renderTable();
+      addEvent('final',transcript,conf);
+    }
   } else {
     chunkCount++;$('s-chunks').textContent=chunkCount;
     const derived=deriveWordTimestamps(interimHistory[ri]||[]);
@@ -537,7 +553,7 @@ function resetAll(){
   if(playRaf){cancelAnimationFrame(playRaf);playRaf=null;}
   analyser=null;audioBlob=null;audioChunks=[];staticCanvas=null;staticDur=null;
   wordLog=[];chunkCount=0;interimCount=0;anchoredCount=0;interimHistory={};
-  recStartMs=null;recStopMs=null;eventsCleared=false;isDragging=false;
+  recStartMs=null;recStopMs=null;eventsCleared=false;isDragging=false;androidCumulativeWords=[];
   $('btn-rec').disabled=false;$('btn-stop').disabled=true;$('btn-play').disabled=true;$('btn-pause').disabled=true;
   setStatus('idle','idle');$('clock').textContent='0.0s';
   $('s-dur').textContent='—';$('s-chunks').textContent=0;$('s-words').textContent=0;$('s-interim').textContent=0;$('s-anchored').textContent=0;
