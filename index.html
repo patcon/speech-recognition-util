@@ -178,6 +178,7 @@ let recStartMs=null,recStopMs=null;
 let wordLog=[],chunkCount=0,interimCount=0,anchoredCount=0;
 let interimHistory={};
 let analyser=null,audioCtxGlobal=null,liveRaf=null,playRaf=null;
+const isAndroid=/android/i.test(navigator.userAgent);
 let eventsCleared=false;
 let backdateMs=600;
 let staticCanvas=null,staticDur=null;
@@ -288,16 +289,21 @@ async function startRec(){
   try{recognition.start();}
   catch(e){dbg('recognition.start() threw: '+e.message);setStatus('error','rec failed: '+e.message);return;}
 
+  recStartMs=Date.now();
+  $('btn-rec').disabled=true;$('btn-stop').disabled=false;$('btn-play').disabled=true;$('btn-pause').disabled=true;
+
+  if(isAndroid){
+    dbg('Android: skipping MediaRecorder to avoid mic contention with SR');
+    return;
+  }
+
   // Step 2: after a short delay, get the stream for MediaRecorder+analyser
-  // Delay gives SpeechRecognition time to fully claim the mic on Android
   await new Promise(r=>setTimeout(r,300));
 
   dbg('requesting getUserMedia');
   try{recStream=await navigator.mediaDevices.getUserMedia({audio:true,video:false});}
   catch(e){dbg('getUserMedia failed: '+e.name+' / '+e.message);setStatus('error','mic denied');recognition.stop();return;}
   dbg('getUserMedia ok, tracks: '+recStream.getAudioTracks().length);
-
-  recStartMs=Date.now();
 
   const AudioCtx=window.AudioContext||window.webkitAudioContext;
   audioCtxGlobal=new AudioCtx();
@@ -313,8 +319,6 @@ async function startRec(){
   mediaRec.onerror=e=>{dbg('MediaRecorder onerror: '+e.error);};
   mediaRec.start(100);
   dbg('MediaRecorder started');
-
-  $('btn-rec').disabled=true;$('btn-stop').disabled=false;$('btn-play').disabled=true;$('btn-pause').disabled=true;
   drawLive();
 }
 
@@ -416,14 +420,13 @@ function drawLive(){
 
 function stopRec(){
   dbg('stopRec called');
-  if(recognition){try{recognition.stop();}catch(e){dbg('recognition.stop() threw: '+e.message);}}
-  if(mediaRec&&mediaRec.state!=='inactive')mediaRec.stop();
   recStopMs=Date.now();
+  if(recognition){try{recognition.stop();}catch(e){dbg('recognition.stop() threw: '+e.message);}}
+  if(mediaRec&&mediaRec.state!=='inactive'){mediaRec.stop();}
+  else if(isAndroid){setStatus('ready','stopped');$('btn-stop').disabled=true;$('btn-rec').disabled=false;}
   if(recStream)recStream.getTracks().forEach(t=>t.stop());
   if(liveRaf){cancelAnimationFrame(liveRaf);liveRaf=null;}
   analyser=null;
-  setStatus('ready','stopped');
-  $('btn-stop').disabled=true;$('btn-rec').disabled=false;
 }
 
 function finishRec(){
