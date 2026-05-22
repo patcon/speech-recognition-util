@@ -9,7 +9,6 @@ body{font-family:var(--font-sans);font-size:14px;color:var(--color-text-primary)
 .badge{font-size:11px;padding:2px 8px;border-radius:99px;font-weight:500;}
 .badge-idle{background:var(--color-background-secondary);color:var(--color-text-secondary);border:0.5px solid var(--color-border-tertiary);}
 .badge-rec{background:#FCEBEB;color:#A32D2D;border:0.5px solid #F09595;}
-.badge-listening{background:#EAF3DE;color:#3B6D11;border:0.5px solid #97C459;}
 .badge-ready{background:#EAF3DE;color:#3B6D11;border:0.5px solid #97C459;}
 .badge-error{background:#FCEBEB;color:#A32D2D;border:0.5px solid #F09595;}
 .mono{font-family:var(--font-mono);font-size:11px;}
@@ -18,7 +17,7 @@ body{font-family:var(--font-sans);font-size:14px;color:var(--color-text-primary)
 .stat-val{font-size:20px;font-weight:500;}
 .stat-lbl{font-size:11px;color:var(--color-text-secondary);margin-top:2px;}
 .event-stream{max-height:180px;overflow-y:auto;display:flex;flex-direction:column;gap:4px;}
-.event-row{display:grid;grid-template-columns:80px 90px 1fr;gap:8px;align-items:baseline;padding:3px 0;border-bottom:0.5px solid var(--color-border-tertiary);}
+.event-row{display:grid;grid-template-columns:80px 100px 1fr;gap:8px;align-items:baseline;padding:3px 0;border-bottom:0.5px solid var(--color-border-tertiary);}
 .event-row:last-child{border-bottom:none;}
 .ev-time{color:var(--color-text-secondary);font-family:var(--font-mono);font-size:11px;}
 .ev-type{font-size:11px;font-weight:500;padding:1px 6px;border-radius:4px;text-align:center;}
@@ -40,13 +39,13 @@ canvas#waveform-static{width:100%;height:60px;display:block;border-radius:var(--
 .wtable td{padding:3px 6px;border-bottom:0.5px solid var(--color-border-tertiary);font-family:var(--font-mono);}
 .wtable tr:last-child td{border-bottom:none;}
 .wtable tr:nth-child(even) td{background:var(--color-background-secondary);}
-.slider-row{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--color-text-secondary);}
-input[type=range]{width:90px;}
 .empty{color:var(--color-text-tertiary);font-size:13px;text-align:center;padding:1rem;}
+.src-interim{color:#854F0B;}
+.src-backdate{color:#185FA5;}
 </style>
 
 <div class="root">
-<h2 class="sr-only">Speech recorder with full debug output and animated playback</h2>
+<h2 class="sr-only">Speech recorder with interim-anchored word timestamps, full debug output, and animated playback</h2>
 
 <div class="card">
   <div class="row">
@@ -57,11 +56,6 @@ input[type=range]{width:90px;}
     <button onclick="resetAll()" style="color:var(--color-text-secondary)"><i class="ti ti-trash" aria-hidden="true"></i> reset</button>
     <span class="badge badge-idle" id="status">idle</span>
     <div style="flex:1"></div>
-    <div class="slider-row">
-      <label>ms/word:</label>
-      <input type="range" id="mpw" min="80" max="400" step="10" value="150" oninput="msPerWord=+this.value;$('mpw-val').textContent=this.value;">
-      <span id="mpw-val" class="mono">150</span>
-    </div>
     <span class="mono" id="clock" style="color:var(--color-text-secondary);min-width:36px;">0.0s</span>
   </div>
 </div>
@@ -71,7 +65,7 @@ input[type=range]{width:90px;}
   <div class="stat"><div class="stat-val" id="s-chunks">0</div><div class="stat-lbl">chunks</div></div>
   <div class="stat"><div class="stat-val" id="s-words">0</div><div class="stat-lbl">words</div></div>
   <div class="stat"><div class="stat-val" id="s-interim">0</div><div class="stat-lbl">interim events</div></div>
-  <div class="stat"><div class="stat-val" id="s-lag">—</div><div class="stat-lbl">avg chunk lag ms</div></div>
+  <div class="stat"><div class="stat-val" id="s-anchored">0</div><div class="stat-lbl">interim-anchored</div></div>
 </div>
 
 <div class="card">
@@ -86,8 +80,8 @@ input[type=range]{width:90px;}
 </div>
 
 <div class="card">
-  <div class="lbl">word playback</div>
-  <div class="word-flow" id="word-flow"><span class="empty" style="padding:0;">words appear after recording</span></div>
+  <div class="lbl">word playback &nbsp;<span style="font-size:11px;color:var(--color-text-tertiary);"><span class="src-interim">■</span> interim-anchored &nbsp;<span class="src-backdate">■</span> backdated fallback</span></div>
+  <div class="word-flow" id="word-flow"><span style="color:var(--color-text-tertiary);font-size:13px;">words appear after recording</span></div>
 </div>
 
 <div class="card">
@@ -103,12 +97,11 @@ input[type=range]{width:90px;}
 </div>
 
 <div class="card">
-  <div class="lbl">word timestamp log &nbsp;<span style="font-size:11px;color:var(--color-text-tertiary);">arrival = chunk fired &nbsp;|&nbsp; est = backdated per word</span></div>
+  <div class="lbl">word timestamp log &nbsp;<span style="font-size:11px;color:var(--color-text-tertiary);">source = how timestamp was derived</span></div>
   <div style="overflow-x:auto;">
     <table class="wtable">
       <thead><tr>
-        <th>word</th><th>chunk:pos</th><th>arrival UTC</th>
-        <th style="color:#185FA5;">est UTC</th><th style="color:#185FA5;">est offset (s)</th><th>conf</th>
+        <th>word</th><th>chunk:pos</th><th>est offset (s)</th><th>est UTC</th><th>source</th><th>conf</th>
       </tr></thead>
       <tbody id="word-tbody"><tr><td colspan="6" class="empty">no words yet</td></tr></tbody>
     </table>
@@ -117,27 +110,58 @@ input[type=range]{width:90px;}
 </div>
 
 <script>
-const $ = id => document.getElementById(id);
-let msPerWord=150;
-let mediaRec=null, audioChunks=[], audioBlob=null, audioEl=null;
-let recognition=null, recStream=null;
-let recStartMs=null, recStopMs=null;
-let wordLog=[], chunkCount=0, interimCount=0, lagSamples=[];
-let analyser=null, liveRaf=null, playRaf=null;
+const $=id=>document.getElementById(id);
+let mediaRec=null,audioChunks=[],audioBlob=null,audioEl=null;
+let recognition=null,recStream=null;
+let recStartMs=null,recStopMs=null;
+let wordLog=[],chunkCount=0,interimCount=0,anchoredCount=0;
+let analyser=null,liveRaf=null,playRaf=null;
 let eventsCleared=false;
+
+// Per-chunk interim tracking
+// interimHistory[chunkIdx] = [{words:[], arrivalMs}] — ordered list of interim snapshots
+let interimHistory={};
+let currentChunkIdx=0;
 
 function setStatus(cls,txt){const b=$('status');b.className='badge badge-'+cls;b.textContent=txt;}
 function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 
-async function startRec(){
-  try{ recStream=await navigator.mediaDevices.getUserMedia({audio:true}); }
-  catch(e){ setStatus('error','mic denied'); return; }
+// Diff two word arrays, return index of first new word in next
+function firstNewWordIdx(prev,next){
+  // next should be a superset prefix-extension of prev
+  return prev.length; // new words start after prev length
+}
 
-  audioChunks=[];wordLog=[];chunkCount=0;interimCount=0;lagSamples=[];
+// Given interim snapshots for a chunk, assign each word its first-appearance timestamp
+function deriveWordTimestamps(snapshots){
+  // snapshots: [{words:string[], arrivalMs}]
+  // returns: [{word, estMs, source:'interim'}]
+  if(!snapshots||!snapshots.length) return [];
+  const result=[];
+  let coveredCount=0;
+  for(let i=0;i<snapshots.length;i++){
+    const snap=snapshots[i];
+    if(snap.words.length>coveredCount){
+      // new words appeared in this snapshot
+      for(let j=coveredCount;j<snap.words.length;j++){
+        result.push({word:snap.words[j],estMs:snap.arrivalMs,source:'interim'});
+      }
+      coveredCount=snap.words.length;
+    }
+  }
+  return result;
+}
+
+async function startRec(){
+  try{recStream=await navigator.mediaDevices.getUserMedia({audio:true});}
+  catch(e){setStatus('error','mic denied');return;}
+
+  audioChunks=[];wordLog=[];chunkCount=0;interimCount=0;anchoredCount=0;
+  interimHistory={};currentChunkIdx=0;
   audioBlob=null;eventsCleared=false;
   $('word-flow').innerHTML='<span style="color:var(--color-text-tertiary);font-size:13px;">listening...</span>';
   $('word-tbody').innerHTML='<tr><td colspan="6" class="empty">no words yet</td></tr>';
-  $('s-words').textContent=0;$('s-chunks').textContent=0;$('s-interim').textContent=0;$('s-lag').textContent='—';$('s-dur').textContent='—';
+  $('s-words').textContent=0;$('s-chunks').textContent=0;$('s-interim').textContent=0;$('s-anchored').textContent=0;$('s-dur').textContent='—';
   $('raw-json').textContent='—';
   $('event-stream').innerHTML='<div class="empty">events appear when you start speaking</div>';
   $('tick-row').innerHTML='';$('playhead').style.left='0';
@@ -145,14 +169,13 @@ async function startRec(){
   const AudioCtx=window.AudioContext||window.webkitAudioContext;
   const actx=new AudioCtx();
   const src=actx.createMediaStreamSource(recStream);
-  analyser=actx.createAnalyser(); analyser.fftSize=512;
+  analyser=actx.createAnalyser();analyser.fftSize=512;
   src.connect(analyser);
 
   mediaRec=new MediaRecorder(recStream);
   mediaRec.ondataavailable=e=>{if(e.data.size>0)audioChunks.push(e.data);};
   mediaRec.onstop=()=>finishRec(actx);
   mediaRec.start(100);
-
   recStartMs=Date.now();
 
   const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
@@ -171,63 +194,90 @@ async function startRec(){
 
 function handleResult(event){
   const arrivalMs=Date.now();
-  const result=event.results[event.resultIndex];
+  const ri=event.resultIndex;
+  const result=event.results[ri];
   const isFinal=result.isFinal;
   const transcript=result[0].transcript.trim();
   const conf=result[0].confidence;
+  const words=transcript.split(/\s+/).filter(Boolean);
 
-  if(!eventsCleared){
-    $('event-stream').innerHTML='';
-    eventsCleared=true;
-  }
+  if(!eventsCleared){$('event-stream').innerHTML='';eventsCleared=true;}
 
-  const relMs=recStartMs?arrivalMs-recStartMs:0;
+  // Track which chunk we're building interim history for
+  // resultIndex tells us which utterance chunk this belongs to
+  const chunkKey=ri;
 
-  if(isFinal){
+  if(!isFinal){
+    interimCount++;
+    $('s-interim').textContent=interimCount;
+    if(!interimHistory[chunkKey]) interimHistory[chunkKey]=[];
+    interimHistory[chunkKey].push({words:[...words],arrivalMs});
+    addEvent('interim',transcript,conf);
+  } else {
     chunkCount++;
     $('s-chunks').textContent=chunkCount;
-    const words=transcript.split(/\s+/).filter(Boolean);
-    const chunkStartMs=arrivalMs-words.length*msPerWord;
-    lagSamples.push(words.length*msPerWord);
-    $('s-lag').textContent=Math.round(lagSamples.reduce((a,b)=>a+b,0)/lagSamples.length);
+
+    // Derive timestamps from interim history for this chunk
+    const snapshots=interimHistory[chunkKey]||[];
+    const derived=deriveWordTimestamps(snapshots);
+
+    // Match derived timestamps to final words
+    // Final transcript may differ slightly from last interim — align by index
+    let localAnchored=0;
     words.forEach((word,idx)=>{
-      const estMs=chunkStartMs+idx*msPerWord;
+      let estMs, source;
+      if(idx<derived.length){
+        // Use interim-anchored time for this word position
+        estMs=derived[idx].estMs;
+        source='interim';
+        localAnchored++;
+      } else {
+        // Fallback: interpolate from last known interim time or last word
+        const lastKnownMs=derived.length>0?derived[derived.length-1].estMs:arrivalMs;
+        const extraIdx=idx-derived.length;
+        // estimate 150ms per word beyond last anchor
+        estMs=lastKnownMs+(extraIdx+1)*150;
+        source='backdate';
+      }
       const estOffset=Math.max(0,(estMs-recStartMs)/1000);
-      wordLog.push({word,chunk:chunkCount,pos:idx,arrivalMs,estMs,estOffset,conf:conf!=null?parseFloat(conf.toFixed(2)):null});
+      wordLog.push({word,chunk:chunkCount,pos:idx,arrivalMs,estMs,estOffset,source,conf:conf!=null?parseFloat(conf.toFixed(2)):null});
     });
+
+    anchoredCount+=localAnchored;
+    $('s-anchored').textContent=anchoredCount;
     $('s-words').textContent=wordLog.length;
     renderChips();
     renderTable();
-  } else {
-    interimCount++;
-    $('s-interim').textContent=interimCount;
+    addEvent('final',transcript,conf);
+
+    // Clean up interim history for this chunk
+    delete interimHistory[chunkKey];
   }
 
-  addEvent(isFinal?'final':'interim',transcript,conf,relMs);
-
   $('raw-json').textContent=JSON.stringify({
-    resultIndex:event.resultIndex,isFinal,transcript,
+    resultIndex:ri,isFinal,transcript,
     confidence:conf!=null?parseFloat(conf.toFixed(3)):null,
     arrivalUtcMs:arrivalMs,
     arrivalIso:new Date(arrivalMs).toISOString(),
-    wordCount:transcript.split(/\s+/).filter(Boolean).length
+    wordCount:words.length,
+    interimSnapshotsForChunk:(interimHistory[chunkKey]||[]).length
   },null,2);
 }
 
-function addEvent(type,text,conf,relMs){
+function addEvent(type,text,conf){
   const stream=$('event-stream');
   const timeStr=new Date().toISOString().slice(11,23);
   const confStr=(conf!=null&&conf!=='')?` (${parseFloat(conf).toFixed(2)})`:'';
   const row=document.createElement('div');
   row.className='event-row';
-  row.innerHTML=`<span class="ev-time">${timeStr}</span><span class="ev-type ev-${type==='error'?'error':type}">${type}${confStr}</span><span class="ev-text">${esc(text)}</span>`;
+  row.innerHTML=`<span class="ev-time">${timeStr}</span><span class="ev-type ev-${type==='error'?'error':type}">${esc(type)}${confStr}</span><span class="ev-text">${esc(text)}</span>`;
   stream.appendChild(row);
   stream.scrollTop=stream.scrollHeight;
 }
 
 function renderChips(){
   if(!wordLog.length){$('word-flow').innerHTML='';return;}
-  $('word-flow').innerHTML=wordLog.map((w,i)=>`<span class="word-chip" data-idx="${i}">${esc(w.word)}</span>`).join('');
+  $('word-flow').innerHTML=wordLog.map((w,i)=>`<span class="word-chip" data-idx="${i}" style="${w.source==='interim'?'border-color:#5DCAA5;':''}">${esc(w.word)}</span>`).join('');
 }
 
 function renderTable(){
@@ -235,9 +285,9 @@ function renderTable(){
   $('word-tbody').innerHTML=wordLog.slice().reverse().map(w=>`<tr>
     <td style="font-weight:500;">${esc(w.word)}</td>
     <td>${w.chunk}:${w.pos}</td>
-    <td style="color:var(--color-text-secondary);">${new Date(w.arrivalMs).toISOString().slice(11,23)}</td>
-    <td style="color:#185FA5;">${new Date(w.estMs).toISOString().slice(11,23)}</td>
-    <td style="color:#185FA5;">${w.estOffset.toFixed(2)}s</td>
+    <td style="color:${w.source==='interim'?'#854F0B':'#185FA5'};">${w.estOffset.toFixed(2)}s</td>
+    <td style="color:${w.source==='interim'?'#854F0B':'#185FA5'};">${new Date(w.estMs).toISOString().slice(11,23)}</td>
+    <td><span style="font-size:11px;padding:1px 5px;border-radius:3px;background:${w.source==='interim'?'#FAEEDA':'#E6F1FB'};color:${w.source==='interim'?'#854F0B':'#185FA5'};">${w.source}</span></td>
     <td style="color:var(--color-text-secondary);">${w.conf!=null?w.conf:'—'}</td>
   </tr>`).join('');
 }
@@ -256,8 +306,7 @@ function drawLive(){
     const sw=canvas.width/buf.length;let x=0;
     for(let i=0;i<buf.length;i++){
       const y=(buf[i]/128)*(canvas.height/2);
-      i===0?ctx.moveTo(x,y):ctx.lineTo(x,y);
-      x+=sw;
+      i===0?ctx.moveTo(x,y):ctx.lineTo(x,y);x+=sw;
     }
     ctx.stroke();
     $('clock').textContent=((Date.now()-recStartMs)/1000).toFixed(1)+'s';
@@ -316,17 +365,16 @@ function drawWordMarkers(canvas,dur){
   if(!wordLog.length||!dur)return;
   const ctx=canvas.getContext('2d');
   const W=canvas.width,H=canvas.height;
-  ctx.strokeStyle='#1D9E75';ctx.lineWidth=1;
   wordLog.forEach(w=>{
     const x=(w.estOffset/dur)*W;
-    ctx.beginPath();ctx.moveTo(x,H*0.1);ctx.lineTo(x,H*0.9);ctx.stroke();
+    ctx.strokeStyle=w.source==='interim'?'#1D9E75':'#378ADD';
+    ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(x,H*0.1);ctx.lineTo(x,H*0.9);ctx.stroke();
   });
 }
 
 function buildTicks(dur){
   const row=$('tick-row');row.innerHTML='';
   const step=dur>30?10:dur>10?5:1;
-  const W=row.offsetWidth||640;
   for(let t=0;t<=dur;t+=step){
     const span=document.createElement('span');
     span.className='mono';
@@ -338,15 +386,14 @@ function buildTicks(dur){
 
 function doPlay(){
   if(!audioEl)return;
-  audioEl.currentTime=0;
-  audioEl.play();
+  audioEl.currentTime=0;audioEl.play();
   $('btn-play').disabled=true;$('btn-pause').disabled=false;
   setStatus('ready','playing');
-  const dur=parseFloat($('s-dur').textContent)||1;
-  animatePlayback(dur);
+  animatePlayback();
 }
 
-function animatePlayback(dur){
+function animatePlayback(){
+  const dur=parseFloat($('s-dur').textContent)||1;
   const ph=$('playhead');
   const chips=[...$('word-flow').querySelectorAll('.word-chip')];
   function frame(){
@@ -355,17 +402,16 @@ function animatePlayback(dur){
     $('clock').textContent=t.toFixed(1)+'s';
     chips.forEach((chip,i)=>{
       const w=wordLog[i];if(!w)return;
-      const end=w.estOffset+msPerWord/1000+0.05;
-      if(t>=w.estOffset&&t<end) chip.className='word-chip active';
+      // window: from this word's offset to next word's offset (or +300ms for last)
+      const nextOffset=wordLog[i+1]?wordLog[i+1].estOffset:w.estOffset+0.3;
+      if(t>=w.estOffset&&t<nextOffset) chip.className='word-chip active';
       else if(t>=w.estOffset) chip.className='word-chip past';
       else chip.className='word-chip';
     });
-    if(!audioEl.paused&&!audioEl.ended){
-      playRaf=requestAnimationFrame(frame);
-    } else if(audioEl.ended){
+    if(!audioEl.paused&&!audioEl.ended){playRaf=requestAnimationFrame(frame);}
+    else if(audioEl.ended){
       $('btn-play').disabled=false;$('btn-pause').disabled=true;
-      setStatus('ready','done');
-      ph.style.left='100%';
+      setStatus('ready','done');ph.style.left='100%';
       chips.forEach(c=>c.className='word-chip past');
     }
   }
@@ -374,16 +420,8 @@ function animatePlayback(dur){
 
 function doPause(){
   if(!audioEl)return;
-  if(audioEl.paused){
-    audioEl.play();
-    setStatus('ready','playing');
-    const dur=parseFloat($('s-dur').textContent)||1;
-    animatePlayback(dur);
-  } else {
-    audioEl.pause();
-    setStatus('ready','paused');
-    if(playRaf){cancelAnimationFrame(playRaf);playRaf=null;}
-  }
+  if(audioEl.paused){audioEl.play();setStatus('ready','playing');animatePlayback();}
+  else{audioEl.pause();setStatus('ready','paused');if(playRaf){cancelAnimationFrame(playRaf);playRaf=null;}}
 }
 
 function resetAll(){
@@ -394,11 +432,11 @@ function resetAll(){
   if(liveRaf){cancelAnimationFrame(liveRaf);liveRaf=null;}
   if(playRaf){cancelAnimationFrame(playRaf);playRaf=null;}
   analyser=null;audioBlob=null;audioChunks=[];
-  wordLog=[];chunkCount=0;interimCount=0;lagSamples=[];
+  wordLog=[];chunkCount=0;interimCount=0;anchoredCount=0;interimHistory={};
   recStartMs=null;recStopMs=null;eventsCleared=false;
   $('btn-rec').disabled=false;$('btn-stop').disabled=true;$('btn-play').disabled=true;$('btn-pause').disabled=true;
   setStatus('idle','idle');$('clock').textContent='0.0s';
-  $('s-dur').textContent='—';$('s-chunks').textContent=0;$('s-words').textContent=0;$('s-interim').textContent=0;$('s-lag').textContent='—';
+  $('s-dur').textContent='—';$('s-chunks').textContent=0;$('s-words').textContent=0;$('s-interim').textContent=0;$('s-anchored').textContent=0;
   $('raw-json').textContent='—';
   const canvas=$('waveform-static');const ctx=canvas.getContext('2d');
   canvas.width=canvas.offsetWidth*2;canvas.height=120;ctx.clearRect(0,0,canvas.width,canvas.height);
