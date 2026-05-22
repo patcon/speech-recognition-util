@@ -40,12 +40,12 @@ canvas#waveform-static{width:100%;height:60px;display:block;border-radius:var(--
 .wtable tr:last-child td{border-bottom:none;}
 .wtable tr:nth-child(even) td{background:var(--color-background-secondary);}
 .empty{color:var(--color-text-tertiary);font-size:13px;text-align:center;padding:1rem;}
-.src-interim{color:#854F0B;}
-.src-backdate{color:#185FA5;}
+.slider-row{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--color-text-secondary);}
+input[type=range]{width:90px;}
 </style>
 
 <div class="root">
-<h2 class="sr-only">Speech recorder with interim-anchored word timestamps, full debug output, and animated playback</h2>
+<h2 class="sr-only">Speech recorder with interim-anchored timestamps, adjustable backdate offset, and animated playback</h2>
 
 <div class="card">
   <div class="row">
@@ -57,6 +57,17 @@ canvas#waveform-static{width:100%;height:60px;display:block;border-radius:var(--
     <span class="badge badge-idle" id="status">idle</span>
     <div style="flex:1"></div>
     <span class="mono" id="clock" style="color:var(--color-text-secondary);min-width:36px;">0.0s</span>
+  </div>
+</div>
+
+<div class="card">
+  <div class="row">
+    <div class="slider-row">
+      <label for="sld-backdate"><i class="ti ti-clock-minus" aria-hidden="true"></i> backdate:</label>
+      <input type="range" id="sld-backdate" min="0" max="1000" step="10" value="200" oninput="onBackdateChange(+this.value)">
+      <span id="backdate-val" class="mono" style="min-width:44px;">200ms</span>
+    </div>
+    <span style="font-size:12px;color:var(--color-text-tertiary);margin-left:4px;">applied to all timestamps — drag to tune during or after recording</span>
   </div>
 </div>
 
@@ -80,7 +91,7 @@ canvas#waveform-static{width:100%;height:60px;display:block;border-radius:var(--
 </div>
 
 <div class="card">
-  <div class="lbl">word playback &nbsp;<span style="font-size:11px;color:var(--color-text-tertiary);"><span class="src-interim">■</span> interim-anchored &nbsp;<span class="src-backdate">■</span> backdated fallback</span></div>
+  <div class="lbl">word playback &nbsp;<span style="font-size:11px;color:var(--color-text-tertiary);"><span style="color:#1D9E75;">■</span> interim-anchored &nbsp;<span style="color:#185FA5;">■</span> backdated fallback</span></div>
   <div class="word-flow" id="word-flow"><span style="color:var(--color-text-tertiary);font-size:13px;">words appear after recording</span></div>
 </div>
 
@@ -97,13 +108,13 @@ canvas#waveform-static{width:100%;height:60px;display:block;border-radius:var(--
 </div>
 
 <div class="card">
-  <div class="lbl">word timestamp log &nbsp;<span style="font-size:11px;color:var(--color-text-tertiary);">source = how timestamp was derived</span></div>
+  <div class="lbl">word timestamp log &nbsp;<span style="font-size:11px;color:var(--color-text-tertiary);">est offset reflects current backdate setting</span></div>
   <div style="overflow-x:auto;">
     <table class="wtable">
       <thead><tr>
-        <th>word</th><th>chunk:pos</th><th>est offset (s)</th><th>est UTC</th><th>source</th><th>conf</th>
+        <th>word</th><th>chunk:pos</th><th>raw offset (s)</th><th>est offset (s)</th><th>est UTC</th><th>source</th><th>conf</th>
       </tr></thead>
-      <tbody id="word-tbody"><tr><td colspan="6" class="empty">no words yet</td></tr></tbody>
+      <tbody id="word-tbody"><tr><td colspan="7" class="empty">no words yet</td></tr></tbody>
     </table>
   </div>
 </div>
@@ -115,34 +126,34 @@ let mediaRec=null,audioChunks=[],audioBlob=null,audioEl=null;
 let recognition=null,recStream=null;
 let recStartMs=null,recStopMs=null;
 let wordLog=[],chunkCount=0,interimCount=0,anchoredCount=0;
+let interimHistory={};
 let analyser=null,liveRaf=null,playRaf=null;
 let eventsCleared=false;
-
-// Per-chunk interim tracking
-// interimHistory[chunkIdx] = [{words:[], arrivalMs}] — ordered list of interim snapshots
-let interimHistory={};
-let currentChunkIdx=0;
+let backdateMs=200;
 
 function setStatus(cls,txt){const b=$('status');b.className='badge badge-'+cls;b.textContent=txt;}
 function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 
-// Diff two word arrays, return index of first new word in next
-function firstNewWordIdx(prev,next){
-  // next should be a superset prefix-extension of prev
-  return prev.length; // new words start after prev length
+// Each word stores rawEstMs (no backdate). Backdate is applied at render/playback time.
+function effectiveOffset(w){return Math.max(0,w.rawEstOffset - backdateMs/1000);}
+
+function onBackdateChange(val){
+  backdateMs=val;
+  $('backdate-val').textContent=val+'ms';
+  if(wordLog.length){
+    renderTable();
+    renderChips();
+    redrawMarkers();
+  }
 }
 
-// Given interim snapshots for a chunk, assign each word its first-appearance timestamp
 function deriveWordTimestamps(snapshots){
-  // snapshots: [{words:string[], arrivalMs}]
-  // returns: [{word, estMs, source:'interim'}]
   if(!snapshots||!snapshots.length) return [];
   const result=[];
   let coveredCount=0;
   for(let i=0;i<snapshots.length;i++){
     const snap=snapshots[i];
     if(snap.words.length>coveredCount){
-      // new words appeared in this snapshot
       for(let j=coveredCount;j<snap.words.length;j++){
         result.push({word:snap.words[j],estMs:snap.arrivalMs,source:'interim'});
       }
@@ -157,10 +168,9 @@ async function startRec(){
   catch(e){setStatus('error','mic denied');return;}
 
   audioChunks=[];wordLog=[];chunkCount=0;interimCount=0;anchoredCount=0;
-  interimHistory={};currentChunkIdx=0;
-  audioBlob=null;eventsCleared=false;
+  interimHistory={};audioBlob=null;eventsCleared=false;
   $('word-flow').innerHTML='<span style="color:var(--color-text-tertiary);font-size:13px;">listening...</span>';
-  $('word-tbody').innerHTML='<tr><td colspan="6" class="empty">no words yet</td></tr>';
+  $('word-tbody').innerHTML='<tr><td colspan="7" class="empty">no words yet</td></tr>';
   $('s-words').textContent=0;$('s-chunks').textContent=0;$('s-interim').textContent=0;$('s-anchored').textContent=0;$('s-dur').textContent='—';
   $('raw-json').textContent='—';
   $('event-stream').innerHTML='<div class="empty">events appear when you start speaking</div>';
@@ -203,44 +213,33 @@ function handleResult(event){
 
   if(!eventsCleared){$('event-stream').innerHTML='';eventsCleared=true;}
 
-  // Track which chunk we're building interim history for
-  // resultIndex tells us which utterance chunk this belongs to
-  const chunkKey=ri;
-
   if(!isFinal){
     interimCount++;
     $('s-interim').textContent=interimCount;
-    if(!interimHistory[chunkKey]) interimHistory[chunkKey]=[];
-    interimHistory[chunkKey].push({words:[...words],arrivalMs});
+    if(!interimHistory[ri]) interimHistory[ri]=[];
+    interimHistory[ri].push({words:[...words],arrivalMs});
     addEvent('interim',transcript,conf);
   } else {
     chunkCount++;
     $('s-chunks').textContent=chunkCount;
 
-    // Derive timestamps from interim history for this chunk
-    const snapshots=interimHistory[chunkKey]||[];
+    const snapshots=interimHistory[ri]||[];
     const derived=deriveWordTimestamps(snapshots);
-
-    // Match derived timestamps to final words
-    // Final transcript may differ slightly from last interim — align by index
     let localAnchored=0;
+
     words.forEach((word,idx)=>{
-      let estMs, source;
+      let rawEstMs,source;
       if(idx<derived.length){
-        // Use interim-anchored time for this word position
-        estMs=derived[idx].estMs;
+        rawEstMs=derived[idx].estMs;
         source='interim';
         localAnchored++;
       } else {
-        // Fallback: interpolate from last known interim time or last word
         const lastKnownMs=derived.length>0?derived[derived.length-1].estMs:arrivalMs;
-        const extraIdx=idx-derived.length;
-        // estimate 150ms per word beyond last anchor
-        estMs=lastKnownMs+(extraIdx+1)*150;
+        rawEstMs=lastKnownMs+(idx-derived.length+1)*150;
         source='backdate';
       }
-      const estOffset=Math.max(0,(estMs-recStartMs)/1000);
-      wordLog.push({word,chunk:chunkCount,pos:idx,arrivalMs,estMs,estOffset,source,conf:conf!=null?parseFloat(conf.toFixed(2)):null});
+      const rawEstOffset=Math.max(0,(rawEstMs-recStartMs)/1000);
+      wordLog.push({word,chunk:chunkCount,pos:idx,arrivalMs,rawEstMs,rawEstOffset,source,conf:conf!=null?parseFloat(conf.toFixed(2)):null});
     });
 
     anchoredCount+=localAnchored;
@@ -249,18 +248,14 @@ function handleResult(event){
     renderChips();
     renderTable();
     addEvent('final',transcript,conf);
-
-    // Clean up interim history for this chunk
-    delete interimHistory[chunkKey];
+    delete interimHistory[ri];
   }
 
   $('raw-json').textContent=JSON.stringify({
     resultIndex:ri,isFinal,transcript,
     confidence:conf!=null?parseFloat(conf.toFixed(3)):null,
-    arrivalUtcMs:arrivalMs,
-    arrivalIso:new Date(arrivalMs).toISOString(),
-    wordCount:words.length,
-    interimSnapshotsForChunk:(interimHistory[chunkKey]||[]).length
+    arrivalUtcMs:arrivalMs,arrivalIso:new Date(arrivalMs).toISOString(),
+    wordCount:words.length
   },null,2);
 }
 
@@ -281,15 +276,20 @@ function renderChips(){
 }
 
 function renderTable(){
-  if(!wordLog.length){$('word-tbody').innerHTML='<tr><td colspan="6" class="empty">no words yet</td></tr>';return;}
-  $('word-tbody').innerHTML=wordLog.slice().reverse().map(w=>`<tr>
-    <td style="font-weight:500;">${esc(w.word)}</td>
-    <td>${w.chunk}:${w.pos}</td>
-    <td style="color:${w.source==='interim'?'#854F0B':'#185FA5'};">${w.estOffset.toFixed(2)}s</td>
-    <td style="color:${w.source==='interim'?'#854F0B':'#185FA5'};">${new Date(w.estMs).toISOString().slice(11,23)}</td>
-    <td><span style="font-size:11px;padding:1px 5px;border-radius:3px;background:${w.source==='interim'?'#FAEEDA':'#E6F1FB'};color:${w.source==='interim'?'#854F0B':'#185FA5'};">${w.source}</span></td>
-    <td style="color:var(--color-text-secondary);">${w.conf!=null?w.conf:'—'}</td>
-  </tr>`).join('');
+  if(!wordLog.length){$('word-tbody').innerHTML='<tr><td colspan="7" class="empty">no words yet</td></tr>';return;}
+  $('word-tbody').innerHTML=wordLog.slice().reverse().map(w=>{
+    const eo=effectiveOffset(w);
+    const estUtc=new Date(recStartMs+eo*1000).toISOString().slice(11,23);
+    return `<tr>
+      <td style="font-weight:500;">${esc(w.word)}</td>
+      <td>${w.chunk}:${w.pos}</td>
+      <td style="color:var(--color-text-secondary);">${w.rawEstOffset.toFixed(2)}s</td>
+      <td style="color:${w.source==='interim'?'#854F0B':'#185FA5'};">${eo.toFixed(2)}s</td>
+      <td style="color:${w.source==='interim'?'#854F0B':'#185FA5'};">${estUtc}</td>
+      <td><span style="font-size:11px;padding:1px 5px;border-radius:3px;background:${w.source==='interim'?'#FAEEDA':'#E6F1FB'};color:${w.source==='interim'?'#854F0B':'#185FA5'};">${w.source}</span></td>
+      <td style="color:var(--color-text-secondary);">${w.conf!=null?w.conf:'—'}</td>
+    </tr>`;
+  }).join('');
 }
 
 function drawLive(){
@@ -336,8 +336,12 @@ function finishRec(actx){
   buildTicks(parseFloat(dur));
 }
 
+let staticCanvas=null,staticDur=null;
+
 function drawStaticWaveform(actx,dur){
+  staticDur=dur;
   const canvas=$('waveform-static');
+  staticCanvas=canvas;
   canvas.width=canvas.offsetWidth*2;canvas.height=120;
   const ctx=canvas.getContext('2d');
   const reader=new FileReader();
@@ -365,11 +369,42 @@ function drawWordMarkers(canvas,dur){
   if(!wordLog.length||!dur)return;
   const ctx=canvas.getContext('2d');
   const W=canvas.width,H=canvas.height;
+  // clear just the marker area by redrawing — markers are overlaid after waveform
   wordLog.forEach(w=>{
-    const x=(w.estOffset/dur)*W;
+    const eo=effectiveOffset(w);
+    const x=(eo/dur)*W;
     ctx.strokeStyle=w.source==='interim'?'#1D9E75':'#378ADD';
-    ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(x,H*0.1);ctx.lineTo(x,H*0.9);ctx.stroke();
+    ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(x,H*0.05);ctx.lineTo(x,H*0.95);ctx.stroke();
   });
+}
+
+function redrawMarkers(){
+  if(!staticCanvas||!staticDur||!audioBlob)return;
+  // Re-read waveform data from blob and redraw everything
+  const canvas=staticCanvas;
+  const dur=staticDur;
+  const AudioCtx=window.AudioContext||window.webkitAudioContext;
+  const actx=new AudioCtx();
+  const reader=new FileReader();
+  reader.onload=e=>{
+    actx.decodeAudioData(e.target.result,buf=>{
+      const data=buf.getChannelData(0);
+      const W=canvas.width,H=canvas.height;
+      const ctx=canvas.getContext('2d');
+      ctx.clearRect(0,0,W,H);
+      const step=Math.ceil(data.length/W);
+      ctx.strokeStyle='#378ADD';ctx.lineWidth=1;ctx.beginPath();
+      for(let i=0;i<W;i++){
+        let max=0;
+        for(let j=0;j<step;j++){const v=Math.abs(data[i*step+j]||0);if(v>max)max=v;}
+        const h=max*(H*0.85);const y=(H-h)/2;
+        ctx.moveTo(i,y);ctx.lineTo(i,y+h);
+      }
+      ctx.stroke();
+      drawWordMarkers(canvas,dur);
+    });
+  };
+  reader.readAsArrayBuffer(audioBlob);
 }
 
 function buildTicks(dur){
@@ -402,10 +437,10 @@ function animatePlayback(){
     $('clock').textContent=t.toFixed(1)+'s';
     chips.forEach((chip,i)=>{
       const w=wordLog[i];if(!w)return;
-      // window: from this word's offset to next word's offset (or +300ms for last)
-      const nextOffset=wordLog[i+1]?wordLog[i+1].estOffset:w.estOffset+0.3;
-      if(t>=w.estOffset&&t<nextOffset) chip.className='word-chip active';
-      else if(t>=w.estOffset) chip.className='word-chip past';
+      const eo=effectiveOffset(w);
+      const nextEo=wordLog[i+1]?effectiveOffset(wordLog[i+1]):eo+0.3;
+      if(t>=eo&&t<nextEo) chip.className='word-chip active';
+      else if(t>=eo) chip.className='word-chip past';
       else chip.className='word-chip';
     });
     if(!audioEl.paused&&!audioEl.ended){playRaf=requestAnimationFrame(frame);}
@@ -431,7 +466,7 @@ function resetAll(){
   if(audioEl){audioEl.pause();audioEl=null;}
   if(liveRaf){cancelAnimationFrame(liveRaf);liveRaf=null;}
   if(playRaf){cancelAnimationFrame(playRaf);playRaf=null;}
-  analyser=null;audioBlob=null;audioChunks=[];
+  analyser=null;audioBlob=null;audioChunks=[];staticCanvas=null;staticDur=null;
   wordLog=[];chunkCount=0;interimCount=0;anchoredCount=0;interimHistory={};
   recStartMs=null;recStopMs=null;eventsCleared=false;
   $('btn-rec').disabled=false;$('btn-stop').disabled=true;$('btn-play').disabled=true;$('btn-pause').disabled=true;
@@ -442,7 +477,7 @@ function resetAll(){
   canvas.width=canvas.offsetWidth*2;canvas.height=120;ctx.clearRect(0,0,canvas.width,canvas.height);
   $('tick-row').innerHTML='';$('playhead').style.left='0';
   $('word-flow').innerHTML='<span style="color:var(--color-text-tertiary);font-size:13px;">words appear after recording</span>';
-  $('word-tbody').innerHTML='<tr><td colspan="6" class="empty">no words yet</td></tr>';
+  $('word-tbody').innerHTML='<tr><td colspan="7" class="empty">no words yet</td></tr>';
   $('event-stream').innerHTML='<div class="empty">events appear when you start speaking</div>';
 }
 </script>
