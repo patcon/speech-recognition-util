@@ -127,10 +127,51 @@ input[type=range]{width:90px;}
     </table>
   </div>
 </div>
+
+<div class="card">
+  <div class="row" style="margin-bottom:8px;">
+    <span class="lbl" style="margin:0;">debug log</span>
+    <div style="flex:1"></div>
+    <button onclick="copyDebugLog()" style="font-size:11px;padding:3px 8px;">copy</button>
+    <button onclick="clearDebugLog()" style="font-size:11px;padding:3px 8px;color:var(--color-text-secondary);">clear</button>
+  </div>
+  <pre id="debug-log" style="font-family:var(--font-mono);font-size:10px;color:var(--color-text-secondary);max-height:220px;overflow-y:auto;white-space:pre-wrap;word-break:break-all;background:var(--color-background-secondary);padding:8px;border-radius:var(--border-radius-md);margin:0;"></pre>
+</div>
 </div>
 
 <script>
 const $=id=>document.getElementById(id);
+
+let _debugLog=[];
+function dbg(msg){
+  const ts=new Date().toISOString().slice(11,23);
+  const line=`${ts}  ${msg}`;
+  _debugLog.push(line);
+  const el=$('debug-log');
+  el.textContent=_debugLog.join('\n');
+  el.scrollTop=el.scrollHeight;
+}
+function copyDebugLog(){
+  navigator.clipboard.writeText(_debugLog.join('\n')).then(()=>{
+    const btn=document.querySelector('button[onclick="copyDebugLog()"]');
+    const prev=btn.textContent;btn.textContent='copied!';setTimeout(()=>btn.textContent=prev,1500);
+  }).catch(()=>alert(_debugLog.join('\n')));
+}
+function clearDebugLog(){_debugLog=[];$('debug-log').textContent='';}
+
+// Log environment on load
+(function logEnv(){
+  const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+  const MR=window.MediaRecorder;
+  const AC=window.AudioContext||window.webkitAudioContext;
+  dbg('ua: '+navigator.userAgent);
+  dbg('SpeechRecognition: '+(SR?'yes':'NO'));
+  dbg('MediaRecorder: '+(MR?'yes':'NO'));
+  dbg('AudioContext: '+(AC?'yes':'NO'));
+  dbg('getUserMedia: '+(navigator.mediaDevices?.getUserMedia?'yes':'NO'));
+  dbg('protocol: '+location.protocol);
+})();
+
 let mediaRec=null,audioChunks=[],audioBlob=null,audioEl=null;
 let recognition=null,recStream=null;
 let recStartMs=null,recStopMs=null;
@@ -227,36 +268,51 @@ async function startRec(){
   recognition.continuous=true;recognition.interimResults=true;recognition.lang='en-US';
   recognition.onresult=handleResult;
   recognition.onerror=e=>{
+    dbg('SR onerror: '+e.error+(e.message?' / '+e.message:''));
     setStatus('error','err:'+e.error);
     addEvent('error',e.error);
   };
   recognition.onstart=()=>{
+    dbg('SR onstart');
     setStatus('rec','recording');
     addEvent('info','recognition started');
   };
+  recognition.onend=()=>{dbg('SR onend');};
+  recognition.onaudiostart=()=>{dbg('SR onaudiostart');};
+  recognition.onaudioend=()=>{dbg('SR onaudioend');};
+  recognition.onspeechstart=()=>{dbg('SR onspeechstart');};
+  recognition.onspeechend=()=>{dbg('SR onspeechend');};
+  recognition.onnomatch=()=>{dbg('SR onnomatch');};
 
+  dbg('calling recognition.start()');
   try{recognition.start();}
-  catch(e){setStatus('error','rec failed: '+e.message);return;}
+  catch(e){dbg('recognition.start() threw: '+e.message);setStatus('error','rec failed: '+e.message);return;}
 
   // Step 2: after a short delay, get the stream for MediaRecorder+analyser
   // Delay gives SpeechRecognition time to fully claim the mic on Android
   await new Promise(r=>setTimeout(r,300));
 
+  dbg('requesting getUserMedia');
   try{recStream=await navigator.mediaDevices.getUserMedia({audio:true,video:false});}
-  catch(e){setStatus('error','mic denied');recognition.stop();return;}
+  catch(e){dbg('getUserMedia failed: '+e.name+' / '+e.message);setStatus('error','mic denied');recognition.stop();return;}
+  dbg('getUserMedia ok, tracks: '+recStream.getAudioTracks().length);
 
   recStartMs=Date.now();
 
   const AudioCtx=window.AudioContext||window.webkitAudioContext;
   audioCtxGlobal=new AudioCtx();
+  dbg('AudioContext state: '+audioCtxGlobal.state);
   const src=audioCtxGlobal.createMediaStreamSource(recStream);
   analyser=audioCtxGlobal.createAnalyser();analyser.fftSize=512;
   src.connect(analyser);
 
   mediaRec=new MediaRecorder(recStream);
+  dbg('MediaRecorder mimeType: '+mediaRec.mimeType);
   mediaRec.ondataavailable=e=>{if(e.data.size>0)audioChunks.push(e.data);};
-  mediaRec.onstop=()=>finishRec();
+  mediaRec.onstop=()=>{dbg('MediaRecorder onstop, chunks: '+audioChunks.length);finishRec();};
+  mediaRec.onerror=e=>{dbg('MediaRecorder onerror: '+e.error);};
   mediaRec.start(100);
+  dbg('MediaRecorder started');
 
   $('btn-rec').disabled=true;$('btn-stop').disabled=false;$('btn-play').disabled=true;$('btn-pause').disabled=true;
   drawLive();
@@ -265,6 +321,7 @@ async function startRec(){
 function handleResult(event){
   const arrivalMs=Date.now();
   const ri=event.resultIndex;
+  dbg('SR onresult idx='+ri+' isFinal='+event.results[ri].isFinal+' transcript="'+event.results[ri][0].transcript.trim().slice(0,40)+'"');
   const result=event.results[ri];
   const isFinal=result.isFinal;
   const transcript=result[0].transcript.trim();
@@ -358,7 +415,8 @@ function drawLive(){
 }
 
 function stopRec(){
-  if(recognition){try{recognition.stop();}catch(e){}}
+  dbg('stopRec called');
+  if(recognition){try{recognition.stop();}catch(e){dbg('recognition.stop() threw: '+e.message);}}
   if(mediaRec&&mediaRec.state!=='inactive')mediaRec.stop();
   recStopMs=Date.now();
   if(recStream)recStream.getTracks().forEach(t=>t.stop());
