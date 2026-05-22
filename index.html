@@ -1,0 +1,244 @@
+
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: var(--font-sans); font-size: 14px; color: var(--color-text-primary); }
+  .root { padding: 1rem 0; display: flex; flex-direction: column; gap: 12px; }
+  .card { background: var(--color-background-primary); border: 0.5px solid var(--color-border-tertiary); border-radius: var(--border-radius-lg); padding: 1rem 1.25rem; }
+  .card-label { font-size: 12px; color: var(--color-text-secondary); margin-bottom: 8px; text-transform: lowercase; letter-spacing: 0.02em; }
+  .controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .badge { font-size: 11px; padding: 2px 8px; border-radius: 99px; font-weight: 500; }
+  .badge-idle { background: var(--color-background-secondary); color: var(--color-text-secondary); border: 0.5px solid var(--color-border-tertiary); }
+  .badge-listening { background: #EAF3DE; color: #3B6D11; border: 0.5px solid #97C459; }
+  .badge-error { background: #FCEBEB; color: #A32D2D; border: 0.5px solid #F09595; }
+  .mono { font-family: var(--font-mono); font-size: 12px; }
+  .event-stream { max-height: 200px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; }
+  .event-row { display: grid; grid-template-columns: 80px 90px 1fr; gap: 8px; align-items: baseline; padding: 3px 0; border-bottom: 0.5px solid var(--color-border-tertiary); }
+  .event-row:last-child { border-bottom: none; }
+  .ev-time { color: var(--color-text-secondary); font-family: var(--font-mono); font-size: 11px; }
+  .ev-type { font-size: 11px; font-weight: 500; padding: 1px 6px; border-radius: 4px; text-align: center; }
+  .ev-interim { background: #FAEEDA; color: #854F0B; }
+  .ev-final { background: #E1F5EE; color: #0F6E56; }
+  .ev-error { background: #FCEBEB; color: #A32D2D; }
+  .ev-text { color: var(--color-text-primary); font-size: 13px; }
+  .word-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .word-table th { text-align: left; color: var(--color-text-secondary); font-weight: 500; padding: 4px 6px 6px; border-bottom: 0.5px solid var(--color-border-tertiary); }
+  .word-table td { padding: 3px 6px; border-bottom: 0.5px solid var(--color-border-tertiary); font-family: var(--font-mono); }
+  .word-table tr:last-child td { border-bottom: none; }
+  .word-table tr:nth-child(even) td { background: var(--color-background-secondary); }
+  .word-highlight { color: var(--color-text-info); }
+  .empty-state { color: var(--color-text-tertiary); font-size: 13px; text-align: center; padding: 1rem; }
+  .raw-json { background: var(--color-background-secondary); border-radius: var(--border-radius-md); padding: 10px; font-family: var(--font-mono); font-size: 11px; color: var(--color-text-secondary); max-height: 140px; overflow-y: auto; white-space: pre-wrap; word-break: break-all; }
+  .stat-row { display: flex; gap: 8px; flex-wrap: wrap; }
+  .stat { background: var(--color-background-secondary); border-radius: var(--border-radius-md); padding: 8px 12px; flex: 1; min-width: 80px; }
+  .stat-val { font-size: 20px; font-weight: 500; }
+  .stat-lbl { font-size: 11px; color: var(--color-text-secondary); margin-top: 2px; }
+  .col-offset { color: #185FA5; }
+  .col-est { color: #3B6D11; }
+  .col-conf { color: #854F0B; }
+  input[type=range] { width: 100px; }
+  .slider-row { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--color-text-secondary); }
+</style>
+
+<div class="root">
+  <h2 class="sr-only">Web Speech API timestamp explorer — live word-level timing debugger</h2>
+
+  <div class="card">
+    <div class="controls">
+      <button id="btn-start" onclick="startListening()"><i class="ti ti-microphone" aria-hidden="true"></i> start</button>
+      <button id="btn-stop" onclick="stopListening()" disabled><i class="ti ti-player-stop" aria-hidden="true"></i> stop</button>
+      <button onclick="clearAll()" style="color: var(--color-text-secondary)"><i class="ti ti-trash" aria-hidden="true"></i> clear</button>
+      <span class="badge badge-idle" id="status-badge">idle</span>
+      <div style="flex:1"></div>
+      <div class="slider-row">
+        <label for="ms-per-word">ms/word:</label>
+        <input type="range" id="ms-per-word" min="80" max="400" step="10" value="150" oninput="updateMsPerWord(this.value)">
+        <span id="ms-per-word-val" class="mono">150</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="stat-row">
+    <div class="stat"><div class="stat-val" id="stat-chunks">0</div><div class="stat-lbl">chunks received</div></div>
+    <div class="stat"><div class="stat-val" id="stat-words">0</div><div class="stat-lbl">words logged</div></div>
+    <div class="stat"><div class="stat-val" id="stat-interim">0</div><div class="stat-lbl">interim events</div></div>
+    <div class="stat"><div class="stat-val" id="stat-lag">—</div><div class="stat-lbl">avg chunk lag ms</div></div>
+  </div>
+
+  <div class="card">
+    <div class="card-label">raw recognition events</div>
+    <div class="event-stream" id="event-stream">
+      <div class="empty-state">events will appear here when you start speaking</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-label">last raw result object (JSON)</div>
+    <div class="raw-json" id="raw-json">—</div>
+  </div>
+
+  <div class="card">
+    <div class="card-label">word timestamp log</div>
+    <div id="word-table-wrap">
+      <div class="empty-state">final words with estimated timestamps will appear here</div>
+    </div>
+  </div>
+</div>
+
+<script>
+let recognition = null;
+let msPerWord = 150;
+let wordLog = [];
+let chunkCount = 0;
+let interimCount = 0;
+let lagSamples = [];
+let startMs = null;
+let firstEventCleared = false;
+
+function updateMsPerWord(v) {
+  msPerWord = parseInt(v);
+  document.getElementById('ms-per-word-val').textContent = v;
+}
+
+function setStatus(state, text) {
+  const badge = document.getElementById('status-badge');
+  badge.textContent = text;
+  badge.className = 'badge badge-' + state;
+}
+
+function startListening() {
+  const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SpeechRec) {
+    setStatus('error', 'unsupported');
+    addEvent('error', 'SpeechRecognition not supported in this browser');
+    return;
+  }
+  recognition = new SpeechRec();
+  recognition.continuous = true;
+  recognition.interimResults = true;
+  recognition.lang = 'en-US';
+
+  recognition.onstart = () => {
+    startMs = Date.now();
+    setStatus('listening', 'listening');
+    document.getElementById('btn-start').disabled = true;
+    document.getElementById('btn-stop').disabled = false;
+  };
+
+  recognition.onresult = (event) => {
+    const arrivalMs = Date.now();
+    const result = event.results[event.resultIndex];
+    const isFinal = result.isFinal;
+    const transcript = result[0].transcript.trim();
+    const conf = result[0].confidence;
+
+    if (!firstEventCleared) {
+      document.getElementById('event-stream').innerHTML = '';
+      firstEventCleared = true;
+    }
+
+    const relativeMs = startMs ? arrivalMs - startMs : 0;
+
+    if (isFinal) {
+      chunkCount++;
+      document.getElementById('stat-chunks').textContent = chunkCount;
+
+      const words = transcript.split(/\s+/).filter(Boolean);
+      const chunkStartMs = arrivalMs - words.length * msPerWord;
+      const lag = words.length * msPerWord;
+      lagSamples.push(lag);
+      const avgLag = Math.round(lagSamples.reduce((a,b)=>a+b,0)/lagSamples.length);
+      document.getElementById('stat-lag').textContent = avgLag;
+
+      words.forEach((word, idx) => {
+        const estMs = chunkStartMs + idx * msPerWord;
+        wordLog.push({ word, chunkIdx: chunkCount, wordIdx: idx, arrivalUtcMs: arrivalMs, estUtcMs: estMs, offsetMs: idx * msPerWord, conf: conf ? conf.toFixed(2) : '—' });
+      });
+      document.getElementById('stat-words').textContent = wordLog.length;
+      renderWordTable();
+    } else {
+      interimCount++;
+      document.getElementById('stat-interim').textContent = interimCount;
+    }
+
+    addEvent(isFinal ? 'final' : 'interim', transcript, conf, relativeMs);
+
+    const rawObj = {
+      resultIndex: event.resultIndex,
+      isFinal,
+      transcript,
+      confidence: conf ? parseFloat(conf.toFixed(3)) : null,
+      arrivalUtcMs: arrivalMs,
+      arrivalIso: new Date(arrivalMs).toISOString(),
+      wordCount: transcript.split(/\s+/).filter(Boolean).length
+    };
+    document.getElementById('raw-json').textContent = JSON.stringify(rawObj, null, 2);
+  };
+
+  recognition.onerror = (e) => {
+    setStatus('error', 'error: ' + e.error);
+    addEvent('error', e.error);
+  };
+
+  recognition.onend = () => {
+    setStatus('idle', 'stopped');
+    document.getElementById('btn-start').disabled = false;
+    document.getElementById('btn-stop').disabled = true;
+  };
+
+  recognition.start();
+}
+
+function stopListening() {
+  if (recognition) recognition.stop();
+}
+
+function addEvent(type, text, conf, relMs) {
+  const stream = document.getElementById('event-stream');
+  const now = new Date();
+  const timeStr = now.toISOString().slice(11, 23);
+  const row = document.createElement('div');
+  row.className = 'event-row';
+  const confStr = (conf !== undefined && conf !== null && conf !== '') ? ` (${parseFloat(conf).toFixed(2)})` : '';
+  row.innerHTML = `<span class="ev-time">${timeStr}</span><span class="ev-type ev-${type === 'error' ? 'error' : type}">${type}${confStr}</span><span class="ev-text">${escHtml(text)}</span>`;
+  stream.appendChild(row);
+  stream.scrollTop = stream.scrollHeight;
+}
+
+function renderWordTable() {
+  const wrap = document.getElementById('word-table-wrap');
+  if (!wordLog.length) { wrap.innerHTML = '<div class="empty-state">no words yet</div>'; return; }
+  let rows = wordLog.map(w => `<tr>
+    <td>${escHtml(w.word)}</td>
+    <td>${w.chunkIdx}:${w.wordIdx}</td>
+    <td>${new Date(w.arrivalUtcMs).toISOString().slice(11,23)}</td>
+    <td class="col-offset">+${w.offsetMs}</td>
+    <td class="col-est">${new Date(w.estUtcMs).toISOString().slice(11,23)}</td>
+    <td class="col-conf">${w.conf}</td>
+  </tr>`).reverse().join('');
+  wrap.innerHTML = `<table class="word-table">
+    <thead><tr>
+      <th>word</th><th>chunk:pos</th>
+      <th>chunk arrival (UTC)</th>
+      <th class="col-offset">word offset ms</th>
+      <th class="col-est">estimated word UTC</th>
+      <th class="col-conf">conf</th>
+    </tr></thead>
+    <tbody>${rows}</tbody>
+  </table>`;
+}
+
+function clearAll() {
+  wordLog = []; chunkCount = 0; interimCount = 0; lagSamples = []; firstEventCleared = false;
+  document.getElementById('stat-chunks').textContent = 0;
+  document.getElementById('stat-words').textContent = 0;
+  document.getElementById('stat-interim').textContent = 0;
+  document.getElementById('stat-lag').textContent = '—';
+  document.getElementById('raw-json').textContent = '—';
+  document.getElementById('event-stream').innerHTML = '<div class="empty-state">events will appear here when you start speaking</div>';
+  document.getElementById('word-table-wrap').innerHTML = '<div class="empty-state">final words with estimated timestamps will appear here</div>';
+}
+
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+</script>
