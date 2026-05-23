@@ -50,7 +50,7 @@ canvas#waveform-static{width:100%;height:60px;display:block;border-radius:var(--
 .slider-row{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--color-text-secondary);}
 input[type=range]{width:90px;}
 </style>
-<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="./style.css">
 </head>
 <body>
 <div class="root">
@@ -141,7 +141,7 @@ input[type=range]{width:90px;}
 </div>
 
 <script type="module">
-import { estimateWordTimestamps } from '../src/estimateWordTimestamps.js';
+import { createSpeechWordStream } from '../src/createSpeechWordStream.js';
 
 const $=id=>document.getElementById(id);
 
@@ -175,13 +175,11 @@ window.clearDebugLog=function(){_debugLog=[];$('debug-log').textContent='';};
 })();
 
 let mediaRec=null,audioChunks=[],audioBlob=null,audioEl=null;
-let recognition=null,recStream=null;
+let streamHandle=null,recStream=null;
 let recStartMs=null,recStopMs=null;
 let wordLog=[],chunkCount=0,interimCount=0,anchoredCount=0;
-let interimHistory={};
 let analyser=null,audioCtxGlobal=null,liveRaf=null,playRaf=null;
 const isAndroid=/android/i.test(navigator.userAgent);
-let androidCumulativeWords=[];
 let eventsCleared=false;
 let backdateMs=600;
 let staticCanvas=null,staticDur=null;
@@ -241,11 +239,10 @@ function updateChipsAt(t){
 }
 
 window.startRec=async function(){
-  const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
-  if(!SR){setStatus('error','no speech API');return;}
+  if(!(window.SpeechRecognition||window.webkitSpeechRecognition)){setStatus('error','no speech API');return;}
 
   audioChunks=[];wordLog=[];chunkCount=0;interimCount=0;anchoredCount=0;
-  interimHistory={};audioBlob=null;eventsCleared=false;staticCanvas=null;staticDur=null;androidCumulativeWords=[];
+  audioBlob=null;eventsCleared=false;staticCanvas=null;staticDur=null;
   $('word-flow').innerHTML='<span style="color:var(--color-text-tertiary);font-size:13px;">listening...</span>';
   $('word-tbody').innerHTML='<tr><td colspan="7" class="empty">no words yet</td></tr>';
   $('s-words').textContent=0;$('s-chunks').textContent=0;$('s-interim').textContent=0;$('s-anchored').textContent=0;$('s-dur').textContent='—';
@@ -254,40 +251,28 @@ window.startRec=async function(){
   $('tick-row').innerHTML='';$('playhead').style.left='0';$('waveform-hint').textContent='';
   $('playback-wrap').classList.remove('has-audio');
 
-  recognition=new SR();
-  recognition.continuous=true;recognition.interimResults=true;recognition.lang='en-US';
-  recognition.onresult=handleResult;
-  recognition.onerror=e=>{
-    dbg('SR onerror: '+e.error+(e.message?' / '+e.message:''));
-    setStatus('error','err:'+e.error);
-    addEvent('error',e.error);
-  };
-  recognition.onstart=()=>{
-    dbg('SR onstart');
-    setStatus('rec','recording');
-    addEvent('info','recognition started');
-  };
-  recognition.onend=()=>{
-    dbg('SR onend');
-    if(isAndroid&&!$('btn-stop').disabled){
-      dbg('Android: restarting recognition');
-      try{recognition.start();}catch(e){dbg('recognition.start() on restart threw: '+e.message);}
-    }
-  };
-  recognition.onaudiostart=()=>{dbg('SR onaudiostart');};
-  recognition.onaudioend=()=>{dbg('SR onaudioend');};
-  recognition.onspeechstart=()=>{dbg('SR onspeechstart');};
-  recognition.onspeechend=()=>{dbg('SR onspeechend');};
-  recognition.onnomatch=()=>{dbg('SR onnomatch');};
+  dbg('calling createSpeechWordStream()');
+  try{streamHandle=createSpeechWordStream({lang:'en-US'});}
+  catch(e){dbg('createSpeechWordStream threw: '+e.message);setStatus('error','rec failed: '+e.message);return;}
 
-  dbg('calling recognition.start()');
-  try{recognition.start();}
-  catch(e){dbg('recognition.start() threw: '+e.message);setStatus('error','rec failed: '+e.message);return;}
-
+  setStatus('rec','recording');
+  addEvent('info','recognition started');
   $('btn-rec').disabled=true;$('btn-stop').disabled=false;$('btn-playpause').disabled=true;$('btn-playstop').disabled=true;
 
+  (async()=>{
+    for await(const wt of streamHandle.stream){
+      if(!recStartMs)recStartMs=streamHandle.recStartMs();
+      if(!eventsCleared){$('event-stream').innerHTML='';eventsCleared=true;}
+      chunkCount++;
+      addEvent('final',wt.word);
+      wordLog.push({word:wt.word,chunk:chunkCount,pos:0,rawEstOffset:wt.offsetMs/1000,source:wt.source,conf:null});
+      $('s-words').textContent=wordLog.length;
+      $('s-chunks').textContent=chunkCount;
+      renderChips();renderTable();
+    }
+  })();
+
   if(isAndroid){
-    recStartMs=Date.now();
     dbg('Android: skipping MediaRecorder to avoid mic contention with SR');
     return;
   }
@@ -296,9 +281,9 @@ window.startRec=async function(){
 
   dbg('requesting getUserMedia');
   try{recStream=await navigator.mediaDevices.getUserMedia({audio:true,video:false});}
-  catch(e){dbg('getUserMedia failed: '+e.name+' / '+e.message);setStatus('error','mic denied');recognition.stop();return;}
+  catch(e){dbg('getUserMedia failed: '+e.name+' / '+e.message);setStatus('error','mic denied');streamHandle.stop();return;}
   dbg('getUserMedia ok, tracks: '+recStream.getAudioTracks().length);
-  recStartMs=Date.now();
+  if(!recStartMs)recStartMs=Date.now();
 
   const AudioCtx=window.AudioContext||window.webkitAudioContext;
   audioCtxGlobal=new AudioCtx();
@@ -317,61 +302,6 @@ window.startRec=async function(){
   drawLive();
 };
 
-function handleResult(event){
-  const arrivalMs=Date.now();
-  const ri=event.resultIndex;
-  dbg('SR onresult idx='+ri+' isFinal='+event.results[ri].isFinal+' transcript="'+event.results[ri][0].transcript.trim().slice(0,40)+'"');
-  const result=event.results[ri];
-  const isFinal=result.isFinal;
-  const transcript=result[0].transcript.trim();
-  const conf=result[0].confidence;
-  const words=transcript.split(/\s+/).filter(Boolean);
-
-  if(!eventsCleared){$('event-stream').innerHTML='';eventsCleared=true;}
-
-  if(!isFinal){
-    interimCount++;$('s-interim').textContent=interimCount;
-    if(!interimHistory[ri])interimHistory[ri]=[];
-    interimHistory[ri].push({words:[...words],arrivalMs});
-    addEvent('interim',transcript,conf);
-  } else if(isAndroid){
-    const newWords=words.slice(androidCumulativeWords.length);
-    androidCumulativeWords=words;
-    if(newWords.length){
-      chunkCount++;$('s-chunks').textContent=chunkCount;
-      // Use estimateWordTimestamps with no snapshots (Android has no interim history)
-      const timestamps=estimateWordTimestamps([],newWords,recStartMs||arrivalMs,{arrivalMs});
-      timestamps.forEach((wt,idx)=>{
-        wordLog.push({word:wt.word,chunk:chunkCount,pos:idx,arrivalMs,rawEstOffset:wt.offsetMs/1000,source:wt.source,conf:conf!=null?parseFloat(conf.toFixed(2)):null});
-      });
-      $('s-words').textContent=wordLog.length;
-      renderChips();renderTable();
-      addEvent('final',transcript,conf);
-    }
-  } else {
-    chunkCount++;$('s-chunks').textContent=chunkCount;
-    // Use estimateWordTimestamps with interim history for this result index
-    const timestamps=estimateWordTimestamps(interimHistory[ri]||[],words,recStartMs||arrivalMs,{arrivalMs});
-    let localAnchored=0;
-    timestamps.forEach((wt,idx)=>{
-      if(wt.source==='interim')localAnchored++;
-      wordLog.push({word:wt.word,chunk:chunkCount,pos:idx,arrivalMs,rawEstOffset:wt.offsetMs/1000,source:wt.source,conf:conf!=null?parseFloat(conf.toFixed(2)):null});
-    });
-    anchoredCount+=localAnchored;
-    $('s-anchored').textContent=anchoredCount;
-    $('s-words').textContent=wordLog.length;
-    renderChips();renderTable();
-    addEvent('final',transcript,conf);
-    delete interimHistory[ri];
-  }
-
-  $('raw-json').textContent=JSON.stringify({
-    resultIndex:ri,isFinal,transcript,
-    confidence:conf!=null?parseFloat(conf.toFixed(3)):null,
-    arrivalUtcMs:arrivalMs,arrivalIso:new Date(arrivalMs).toISOString(),
-    wordCount:words.length
-  },null,2);
-}
 
 function addEvent(type,text,conf){
   const stream=$('event-stream');
@@ -428,7 +358,7 @@ function drawLive(){
 window.stopRec=function(){
   dbg('stopRec called');
   recStopMs=Date.now();
-  if(recognition){try{recognition.stop();}catch(e){dbg('recognition.stop() threw: '+e.message);}}
+  if(streamHandle){try{streamHandle.stop();}catch(e){dbg('streamHandle.stop() threw: '+e.message);}streamHandle=null;}
   if(mediaRec&&mediaRec.state!=='inactive'){mediaRec.stop();}
   else if(isAndroid){setStatus('ready','stopped');$('btn-stop').disabled=true;$('btn-rec').disabled=false;}
   if(recStream)recStream.getTracks().forEach(t=>t.stop());
@@ -555,15 +485,15 @@ function animatePlayback(){
 }
 
 window.resetAll=function(){
-  if(recognition){try{recognition.stop();}catch(e){}}
+  if(streamHandle){try{streamHandle.stop();}catch(e){}streamHandle=null;}
   if(mediaRec&&mediaRec.state!=='inactive'){try{mediaRec.stop();}catch(e){}}
   if(recStream)recStream.getTracks().forEach(t=>t.stop());
   if(audioEl){audioEl.pause();audioEl=null;}
   if(liveRaf){cancelAnimationFrame(liveRaf);liveRaf=null;}
   if(playRaf){cancelAnimationFrame(playRaf);playRaf=null;}
   analyser=null;audioBlob=null;audioChunks=[];staticCanvas=null;staticDur=null;
-  wordLog=[];chunkCount=0;interimCount=0;anchoredCount=0;interimHistory={};
-  recStartMs=null;recStopMs=null;eventsCleared=false;isDragging=false;androidCumulativeWords=[];
+  wordLog=[];chunkCount=0;interimCount=0;anchoredCount=0;
+  recStartMs=null;recStopMs=null;eventsCleared=false;isDragging=false;
   $('btn-rec').disabled=false;$('btn-stop').disabled=true;$('btn-playpause').disabled=true;$('btn-playstop').disabled=true;setPlayPauseBtn(false);
   setStatus('idle','idle');$('clock').textContent='0.0s';
   $('s-dur').textContent='—';$('s-chunks').textContent=0;$('s-words').textContent=0;$('s-interim').textContent=0;$('s-anchored').textContent=0;
