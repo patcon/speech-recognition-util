@@ -176,7 +176,7 @@ window.clearDebugLog=function(){_debugLog=[];$('debug-log').textContent='';};
 
 let mediaRec=null,audioChunks=[],audioBlob=null,audioEl=null;
 let streamHandle=null,recStream=null;
-let recStartMs=null,recStopMs=null;
+let speechStartMs=null,recStartMs=null,recStopMs=null;
 let wordLog=[],chunkCount=0,interimCount=0,anchoredCount=0;
 let analyser=null,audioCtxGlobal=null,liveRaf=null,playRaf=null;
 const isAndroid=/android/i.test(navigator.userAgent);
@@ -187,7 +187,7 @@ let isDragging=false;
 
 function setStatus(cls,txt){const b=$('status');b.className='badge badge-'+cls;b.textContent=txt;}
 function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
-function effectiveOffset(w){return Math.max(0,w.rawEstOffset-backdateMs/1000);}
+function effectiveOffset(w){const gap=(recStartMs&&speechStartMs)?(recStartMs-speechStartMs)/1000:0;return Math.max(0,w.rawEstOffset-gap-backdateMs/1000);}
 
 window.onBackdateChange=function(val){
   backdateMs=val;
@@ -261,7 +261,7 @@ window.startRec=async function(){
 
   (async()=>{
     for await(const wt of streamHandle.stream){
-      if(!recStartMs)recStartMs=streamHandle.recStartMs();
+      if(!speechStartMs)speechStartMs=streamHandle.recStartMs();
       if(!eventsCleared){$('event-stream').innerHTML='';eventsCleared=true;}
       chunkCount++;
       addEvent('final',wt.word);
@@ -273,6 +273,7 @@ window.startRec=async function(){
   })();
 
   if(isAndroid){
+    recStartMs=streamHandle.recStartMs()??Date.now();
     dbg('Android: skipping MediaRecorder to avoid mic contention with SR');
     return;
   }
@@ -283,7 +284,6 @@ window.startRec=async function(){
   try{recStream=await navigator.mediaDevices.getUserMedia({audio:true,video:false});}
   catch(e){dbg('getUserMedia failed: '+e.name+' / '+e.message);setStatus('error','mic denied');streamHandle.stop();return;}
   dbg('getUserMedia ok, tracks: '+recStream.getAudioTracks().length);
-  if(!recStartMs)recStartMs=Date.now();
 
   const AudioCtx=window.AudioContext||window.webkitAudioContext;
   audioCtxGlobal=new AudioCtx();
@@ -298,6 +298,7 @@ window.startRec=async function(){
   mediaRec.ondataavailable=e=>{if(e.data.size>0)audioChunks.push(e.data);};
   mediaRec.onstop=()=>{dbg('MediaRecorder onstop, chunks: '+audioChunks.length);finishRec();};
   mediaRec.onerror=e=>{dbg('MediaRecorder onerror: '+e.error);};
+  recStartMs=Date.now();
   mediaRec.start(100);
   dbg('MediaRecorder started');
   drawLive();
@@ -323,8 +324,8 @@ function renderTable(){
   if(!wordLog.length){$('word-tbody').innerHTML='<tr><td colspan="7" class="empty">no words yet</td></tr>';return;}
   $('word-tbody').innerHTML=wordLog.slice().reverse().map(w=>{
     const eo=effectiveOffset(w);
-    const base=recStartMs||0;
-    const estUtc=new Date(base+eo*1000).toISOString().slice(11,23);
+    const base=speechStartMs||recStartMs||0;
+    const estUtc=new Date(base+w.rawEstOffset*1000).toISOString().slice(11,23);
     return `<tr>
       <td style="font-weight:500;">${esc(w.word)}</td>
       <td>${w.chunk}:${w.pos}</td>
@@ -494,7 +495,7 @@ window.resetAll=function(){
   if(playRaf){cancelAnimationFrame(playRaf);playRaf=null;}
   analyser=null;audioBlob=null;audioChunks=[];staticCanvas=null;staticDur=null;
   wordLog=[];chunkCount=0;interimCount=0;anchoredCount=0;
-  recStartMs=null;recStopMs=null;eventsCleared=false;isDragging=false;
+  speechStartMs=null;recStartMs=null;recStopMs=null;eventsCleared=false;isDragging=false;
   $('btn-rec').disabled=false;$('btn-stop').disabled=true;$('btn-playpause').disabled=true;$('btn-playstop').disabled=true;setPlayPauseBtn(false);
   setStatus('idle','idle');$('clock').textContent='0.0s';
   $('s-dur').textContent='—';$('s-chunks').textContent=0;$('s-words').textContent=0;$('s-interim').textContent=0;$('s-anchored').textContent=0;
