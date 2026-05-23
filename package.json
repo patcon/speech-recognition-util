@@ -5,5 +5,12 @@
   "exports": "./src/index.js",
   "files": ["src/"],
   "description": "Per-word timestamp estimation for Web Speech API transcriptions",
-  "license": "MIT"
+  "license": "MIT",
+  "scripts": {
+    "test": "node src/estimateWordTimestamps.test.js",
+    "example": "serve . --listen 8080"
+  },
+  "devDependencies": {
+    "serve": "^14.2.4"
+  }
 }
