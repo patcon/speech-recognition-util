@@ -50,8 +50,9 @@ canvas#waveform-static{width:100%;height:60px;display:block;border-radius:var(--
 .slider-row{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--color-text-secondary);}
 input[type=range]{width:90px;}
 </style>
-<link rel="stylesheet" href="style.css">
-
+<link rel="stylesheet" href="../style.css">
+</head>
+<body>
 <div class="root">
 <h2 class="sr-only">Speech recorder with interim-anchored timestamps, seekable waveform, and animated playback</h2>
 
@@ -100,7 +101,7 @@ input[type=range]{width:90px;}
 </div>
 
 <div class="card">
-  <div class="lbl">word playback &nbsp;<span style="font-size:11px;color:var(--color-text-tertiary);"><span style="color:#1D9E75;">■</span> interim-anchored &nbsp;<span style="color:#185FA5;">■</span> backdated fallback</span></div>
+  <div class="lbl">word playback &nbsp;<span style="font-size:11px;color:var(--color-text-tertiary);"><span style="color:#1D9E75;">■</span> interim-anchored &nbsp;<span style="color:#185FA5;">■</span> fallback</span></div>
   <div class="word-flow" id="word-flow"><span style="color:var(--color-text-tertiary);font-size:13px;">words appear after recording</span></div>
 </div>
 
@@ -139,7 +140,9 @@ input[type=range]{width:90px;}
 </div>
 </div>
 
-<script>
+<script type="module">
+import { estimateWordTimestamps } from '../src/estimateWordTimestamps.js';
+
 const $=id=>document.getElementById(id);
 
 let _debugLog=[];
@@ -151,15 +154,14 @@ function dbg(msg){
   el.textContent=_debugLog.join('\n');
   el.scrollTop=el.scrollHeight;
 }
-function copyDebugLog(){
+window.copyDebugLog=function(){
   navigator.clipboard.writeText(_debugLog.join('\n')).then(()=>{
     const btn=document.querySelector('button[onclick="copyDebugLog()"]');
     const prev=btn.textContent;btn.textContent='copied!';setTimeout(()=>btn.textContent=prev,1500);
   }).catch(()=>alert(_debugLog.join('\n')));
-}
-function clearDebugLog(){_debugLog=[];$('debug-log').textContent='';}
+};
+window.clearDebugLog=function(){_debugLog=[];$('debug-log').textContent='';};
 
-// Log environment on load
 (function logEnv(){
   const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
   const MR=window.MediaRecorder;
@@ -189,11 +191,11 @@ function setStatus(cls,txt){const b=$('status');b.className='badge badge-'+cls;b
 function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 function effectiveOffset(w){return Math.max(0,w.rawEstOffset-backdateMs/1000);}
 
-function onBackdateChange(val){
+window.onBackdateChange=function(val){
   backdateMs=val;
   $('backdate-val').textContent=val+'ms';
   if(wordLog.length){renderTable();renderChips();redrawMarkers();}
-}
+};
 
 function setupSeek(){
   const wrap=$('playback-wrap');
@@ -238,20 +240,7 @@ function updateChipsAt(t){
   });
 }
 
-function deriveWordTimestamps(snapshots){
-  if(!snapshots||!snapshots.length)return[];
-  const result=[];let covered=0;
-  for(let i=0;i<snapshots.length;i++){
-    const snap=snapshots[i];
-    if(snap.words.length>covered){
-      for(let j=covered;j<snap.words.length;j++)result.push({estMs:snap.arrivalMs,source:'interim'});
-      covered=snap.words.length;
-    }
-  }
-  return result;
-}
-
-async function startRec(){
+window.startRec=async function(){
   const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
   if(!SR){setStatus('error','no speech API');return;}
 
@@ -265,7 +254,6 @@ async function startRec(){
   $('tick-row').innerHTML='';$('playhead').style.left='0';$('waveform-hint').textContent='';
   $('playback-wrap').classList.remove('has-audio');
 
-  // Step 1: start SpeechRecognition first so it claims the mic on Android
   recognition=new SR();
   recognition.continuous=true;recognition.interimResults=true;recognition.lang='en-US';
   recognition.onresult=handleResult;
@@ -281,7 +269,6 @@ async function startRec(){
   };
   recognition.onend=()=>{
     dbg('SR onend');
-    // Android stops recognition after each phrase despite continuous=true; restart to emulate continuous mode.
     if(isAndroid&&!$('btn-stop').disabled){
       dbg('Android: restarting recognition');
       try{recognition.start();}catch(e){dbg('recognition.start() on restart threw: '+e.message);}
@@ -305,7 +292,6 @@ async function startRec(){
     return;
   }
 
-  // Step 2: after a short delay, get the stream for MediaRecorder+analyser
   await new Promise(r=>setTimeout(r,300));
 
   dbg('requesting getUserMedia');
@@ -329,7 +315,7 @@ async function startRec(){
   mediaRec.start(100);
   dbg('MediaRecorder started');
   drawLive();
-}
+};
 
 function handleResult(event){
   const arrivalMs=Date.now();
@@ -349,15 +335,14 @@ function handleResult(event){
     interimHistory[ri].push({words:[...words],arrivalMs});
     addEvent('interim',transcript,conf);
   } else if(isAndroid){
-    // Android sends cumulative finals: each transcript contains ALL words spoken so far.
-    // Diff against what we've already logged to extract only new words.
     const newWords=words.slice(androidCumulativeWords.length);
     androidCumulativeWords=words;
     if(newWords.length){
       chunkCount++;$('s-chunks').textContent=chunkCount;
-      newWords.forEach((word,idx)=>{
-        const rawEstOffset=Math.max(0,(arrivalMs-(recStartMs||arrivalMs))/1000);
-        wordLog.push({word,chunk:chunkCount,pos:idx,arrivalMs,rawEstMs:arrivalMs,rawEstOffset,source:'final',conf:conf!=null?parseFloat(conf.toFixed(2)):null});
+      // Use estimateWordTimestamps with no snapshots (Android has no interim history)
+      const timestamps=estimateWordTimestamps([],newWords,recStartMs||arrivalMs,{arrivalMs});
+      timestamps.forEach((wt,idx)=>{
+        wordLog.push({word:wt.word,chunk:chunkCount,pos:idx,arrivalMs,rawEstOffset:wt.offsetMs/1000,source:wt.source,conf:conf!=null?parseFloat(conf.toFixed(2)):null});
       });
       $('s-words').textContent=wordLog.length;
       renderChips();renderTable();
@@ -365,14 +350,12 @@ function handleResult(event){
     }
   } else {
     chunkCount++;$('s-chunks').textContent=chunkCount;
-    const derived=deriveWordTimestamps(interimHistory[ri]||[]);
+    // Use estimateWordTimestamps with interim history for this result index
+    const timestamps=estimateWordTimestamps(interimHistory[ri]||[],words,recStartMs||arrivalMs,{arrivalMs});
     let localAnchored=0;
-    words.forEach((word,idx)=>{
-      let rawEstMs,source;
-      if(idx<derived.length){rawEstMs=derived[idx].estMs;source='interim';localAnchored++;}
-      else{const last=derived.length>0?derived[derived.length-1].estMs:arrivalMs;rawEstMs=last+(idx-derived.length+1)*150;source='backdate';}
-      const rawEstOffset=Math.max(0,(rawEstMs-(recStartMs||arrivalMs))/1000);
-      wordLog.push({word,chunk:chunkCount,pos:idx,arrivalMs,rawEstMs,rawEstOffset,source,conf:conf!=null?parseFloat(conf.toFixed(2)):null});
+    timestamps.forEach((wt,idx)=>{
+      if(wt.source==='interim')localAnchored++;
+      wordLog.push({word:wt.word,chunk:chunkCount,pos:idx,arrivalMs,rawEstOffset:wt.offsetMs/1000,source:wt.source,conf:conf!=null?parseFloat(conf.toFixed(2)):null});
     });
     anchoredCount+=localAnchored;
     $('s-anchored').textContent=anchoredCount;
@@ -442,7 +425,7 @@ function drawLive(){
   frame();
 }
 
-function stopRec(){
+window.stopRec=function(){
   dbg('stopRec called');
   recStopMs=Date.now();
   if(recognition){try{recognition.stop();}catch(e){dbg('recognition.stop() threw: '+e.message);}}
@@ -451,7 +434,7 @@ function stopRec(){
   if(recStream)recStream.getTracks().forEach(t=>t.stop());
   if(liveRaf){cancelAnimationFrame(liveRaf);liveRaf=null;}
   analyser=null;
-}
+};
 
 function finishRec(){
   audioBlob=new Blob(audioChunks,{type:'audio/webm'});
@@ -531,7 +514,7 @@ function setPlayPauseBtn(playing){
     :'<i class="ti ti-player-play" aria-hidden="true"></i> play';
 }
 
-function doPlayPause(){
+window.doPlayPause=function(){
   if(!audioEl)return;
   if(audioEl.paused||audioEl.ended){
     if(audioEl.ended)audioEl.currentTime=0;
@@ -545,9 +528,9 @@ function doPlayPause(){
     setPlayPauseBtn(false);
     if(playRaf){cancelAnimationFrame(playRaf);playRaf=null;}
   }
-}
+};
 
-function doPlayStop(){
+window.doPlayStop=function(){
   if(!audioEl)return;
   audioEl.pause();
   audioEl.currentTime=0;
@@ -556,7 +539,7 @@ function doPlayStop(){
   $('playhead').style.left='0';
   $('clock').textContent='0.0s';
   if(playRaf){cancelAnimationFrame(playRaf);playRaf=null;}
-}
+};
 
 function animatePlayback(){
   const dur=staticDur||1;
@@ -571,7 +554,7 @@ function animatePlayback(){
   playRaf=requestAnimationFrame(frame);
 }
 
-function resetAll(){
+window.resetAll=function(){
   if(recognition){try{recognition.stop();}catch(e){}}
   if(mediaRec&&mediaRec.state!=='inactive'){try{mediaRec.stop();}catch(e){}}
   if(recStream)recStream.getTracks().forEach(t=>t.stop());
@@ -592,7 +575,7 @@ function resetAll(){
   $('word-flow').innerHTML='<span style="color:var(--color-text-tertiary);font-size:13px;">words appear after recording</span>';
   $('word-tbody').innerHTML='<tr><td colspan="7" class="empty">no words yet</td></tr>';
   $('event-stream').innerHTML='<div class="empty">events appear when you start speaking</div>';
-}
+};
 </script>
 </body>
 </html>
