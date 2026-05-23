@@ -1,0 +1,9 @@
+{
+  "name": "speech-recognition-util",
+  "version": "0.1.0",
+  "type": "module",
+  "exports": "./src/index.js",
+  "files": ["src/"],
+  "description": "Per-word timestamp estimation for Web Speech API transcriptions",
+  "license": "MIT"
+}
