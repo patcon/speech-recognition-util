@@ -59,8 +59,8 @@ input[type=range]{width:90px;}
   <div class="row">
     <button id="btn-rec" onclick="startRec()"><i class="ti ti-microphone" aria-hidden="true"></i> record</button>
     <button id="btn-stop" onclick="stopRec()" disabled><i class="ti ti-player-stop" aria-hidden="true"></i> stop</button>
-    <button id="btn-play" onclick="doPlay()" disabled><i class="ti ti-player-play" aria-hidden="true"></i> play</button>
-    <button id="btn-pause" onclick="doPause()" disabled><i class="ti ti-player-pause" aria-hidden="true"></i> pause</button>
+    <button id="btn-playpause" onclick="doPlayPause()" disabled><i class="ti ti-player-play" aria-hidden="true"></i> play</button>
+    <button id="btn-playstop" onclick="doPlayStop()" disabled><i class="ti ti-player-skip-back" aria-hidden="true"></i> stop</button>
     <button onclick="resetAll()" style="color:var(--color-text-secondary)"><i class="ti ti-trash" aria-hidden="true"></i> reset</button>
     <span class="badge badge-idle" id="status">idle</span>
     <div style="flex:1"></div>
@@ -72,7 +72,7 @@ input[type=range]{width:90px;}
   <div class="row">
     <div class="slider-row">
       <label for="sld-backdate"><i class="ti ti-clock-minus" aria-hidden="true"></i> backdate:</label>
-      <input type="range" id="sld-backdate" min="400" max="1400" step="10" value="600" oninput="onBackdateChange(+this.value)">
+      <input type="range" id="sld-backdate" min="400" max="2000" step="10" value="600" oninput="onBackdateChange(+this.value)">
       <span id="backdate-val" class="mono" style="min-width:44px;">600ms</span>
     </div>
     <span style="font-size:12px;color:var(--color-text-tertiary);margin-left:4px;">drag to tune during or after recording</span>
@@ -298,7 +298,7 @@ async function startRec(){
   catch(e){dbg('recognition.start() threw: '+e.message);setStatus('error','rec failed: '+e.message);return;}
 
   recStartMs=Date.now();
-  $('btn-rec').disabled=true;$('btn-stop').disabled=false;$('btn-play').disabled=true;$('btn-pause').disabled=true;
+  $('btn-rec').disabled=true;$('btn-stop').disabled=false;$('btn-playpause').disabled=true;$('btn-playstop').disabled=true;
 
   if(isAndroid){
     dbg('Android: skipping MediaRecorder to avoid mic contention with SR');
@@ -457,13 +457,13 @@ function finishRec(){
   const url=URL.createObjectURL(audioBlob);
   audioEl=new Audio(url);
   audioEl.onended=()=>{
-    $('btn-play').disabled=false;$('btn-pause').disabled=true;
+    setPlayPauseBtn(false);
     setStatus('ready','done');$('playhead').style.left='100%';
     [...$('word-flow').querySelectorAll('.word-chip')].forEach(c=>c.className='word-chip past');
   };
   const dur=((recStopMs-recStartMs)/1000).toFixed(1);
   $('s-dur').textContent=dur;
-  $('btn-play').disabled=false;
+  $('btn-playpause').disabled=false;$('btn-playstop').disabled=false;
   setupSeek();
   drawStaticWaveform(parseFloat(dur));
   buildTicks(parseFloat(dur));
@@ -524,12 +524,37 @@ function buildTicks(dur){
   }
 }
 
-function doPlay(){
+function setPlayPauseBtn(playing){
+  $('btn-playpause').innerHTML=playing
+    ?'<i class="ti ti-player-pause" aria-hidden="true"></i> pause'
+    :'<i class="ti ti-player-play" aria-hidden="true"></i> play';
+}
+
+function doPlayPause(){
   if(!audioEl)return;
-  audioEl.play();
-  $('btn-play').disabled=true;$('btn-pause').disabled=false;
-  setStatus('ready','playing');
-  animatePlayback();
+  if(audioEl.paused||audioEl.ended){
+    if(audioEl.ended)audioEl.currentTime=0;
+    audioEl.play();
+    setStatus('ready','playing');
+    setPlayPauseBtn(true);
+    animatePlayback();
+  }else{
+    audioEl.pause();
+    setStatus('ready','paused');
+    setPlayPauseBtn(false);
+    if(playRaf){cancelAnimationFrame(playRaf);playRaf=null;}
+  }
+}
+
+function doPlayStop(){
+  if(!audioEl)return;
+  audioEl.pause();
+  audioEl.currentTime=0;
+  setPlayPauseBtn(false);
+  setStatus('ready','stopped');
+  $('playhead').style.left='0';
+  $('clock').textContent='0.0s';
+  if(playRaf){cancelAnimationFrame(playRaf);playRaf=null;}
 }
 
 function animatePlayback(){
@@ -545,12 +570,6 @@ function animatePlayback(){
   playRaf=requestAnimationFrame(frame);
 }
 
-function doPause(){
-  if(!audioEl)return;
-  if(audioEl.paused){audioEl.play();setStatus('ready','playing');animatePlayback();}
-  else{audioEl.pause();setStatus('ready','paused');if(playRaf){cancelAnimationFrame(playRaf);playRaf=null;}}
-}
-
 function resetAll(){
   if(recognition){try{recognition.stop();}catch(e){}}
   if(mediaRec&&mediaRec.state!=='inactive'){try{mediaRec.stop();}catch(e){}}
@@ -561,7 +580,7 @@ function resetAll(){
   analyser=null;audioBlob=null;audioChunks=[];staticCanvas=null;staticDur=null;
   wordLog=[];chunkCount=0;interimCount=0;anchoredCount=0;interimHistory={};
   recStartMs=null;recStopMs=null;eventsCleared=false;isDragging=false;androidCumulativeWords=[];
-  $('btn-rec').disabled=false;$('btn-stop').disabled=true;$('btn-play').disabled=true;$('btn-pause').disabled=true;
+  $('btn-rec').disabled=false;$('btn-stop').disabled=true;$('btn-playpause').disabled=true;$('btn-playstop').disabled=true;setPlayPauseBtn(false);
   setStatus('idle','idle');$('clock').textContent='0.0s';
   $('s-dur').textContent='—';$('s-chunks').textContent=0;$('s-words').textContent=0;$('s-interim').textContent=0;$('s-anchored').textContent=0;
   $('raw-json').textContent='—';$('waveform-hint').textContent='';
